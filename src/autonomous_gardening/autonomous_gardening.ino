@@ -1,16 +1,25 @@
 // WiFi libraries
-#include "ESP8266WiFi.h"
-#include "ESP8266HTTPClient.h"
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
 
-// DDNS librarues
+// DDNS libraries
 #include <EasyDDNS.h>
+
+// Web server libraries
+#include <ESPAsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <LittleFS.h>
+
+// Project libraries
+#include "webserver.h"
 
 // Import private user data
 #include "config/user_data.h"
 
 // Global variables
-WiFiServer server(port);
-  
+AsyncWebServer server(port);
+
+
 void setup() { 
 
   /*****************************/
@@ -32,6 +41,11 @@ void setup() {
     Serial.print(".");
   }
   Serial.println(WiFi.localIP()); // Print the IP address
+
+  /*****************************/
+  /*       Webserver init      */
+  /*****************************/
+  initialize_webserver(server);
   server.begin();
 
   /*****************************/
@@ -48,13 +62,15 @@ void setup() {
     For DDNS Providers where you get username and password: ( Leave the password field empty "" if not required )
       Use this: EasyDDNS.client("domain", "username", "password");
   */
-  EasyDDNS.client(my_DDNS_domain, my_DDNS_token); // Enter your DDNS Domain & Token
+  EasyDDNS.client(my_DDNS_domain, my_DDNS_token);
 
   // Get Notified when your IP changes
   EasyDDNS.onUpdate([&](const char* oldIP, const char* newIP){
     Serial.print("EasyDDNS - IP Change Detected: ");
     Serial.println(newIP);
   });
+
+
 }
 
 void loop() {
@@ -72,8 +88,8 @@ void loop() {
       delay(5000);
       Serial.print(".");
     }
-  }else
-    Serial.println("WiFi connection is ok.");
+  }/*else
+    Serial.println("WiFi connection is ok.");*/
 
   /*****************************/
   /*           DDNS            */
@@ -82,6 +98,6 @@ void loop() {
   EasyDDNS.update(10000);
 
   // Loop rate (1s)
-  delay(1000);
+  // delay(1000);
   
 }
