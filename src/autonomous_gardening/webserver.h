@@ -3,12 +3,12 @@
 #define WEBSERVER_H
 
 // Set pumps GPIOs
-const int pump1Pin = 15;
-// const int pump2Pin = 13;
+const int pump2Pin = 15; // D8
+const int pump1Pin = 13; // D7
 
 // Stores pumps state
 String pump1State;
-// String pump2State;
+String pump2State;
 
 String getTemperature() // function to get temperature from dht11
 {
@@ -46,7 +46,7 @@ String processor(const String& var)
     }
     Serial.print(pump1State);
     return pump1State;
-  }/*else if(var == "STATE2")
+  }else if(var == "STATE2")
   {
     if(digitalRead(pump2Pin))
     {
@@ -58,7 +58,7 @@ String processor(const String& var)
     }
     Serial.print(pump2State);
     return pump2State;
-  }*/else if (var == "TEMPERATURE")
+  }else if (var == "TEMPERATURE")
   {
     return getTemperature();
   }
@@ -80,6 +80,7 @@ void initialize_webserver(AsyncWebServer& server)
 
 
     pinMode(pump1Pin, OUTPUT);
+    pinMode(pump2Pin, OUTPUT);
 
 
     // Route for root / web page
@@ -96,26 +97,26 @@ void initialize_webserver(AsyncWebServer& server)
     // Route to set GPIO to HIGH
     server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-      digitalWrite(pump1Pin, HIGH);    
+      digitalWrite(pump1Pin, HIGH);
       request->send(LittleFS, "/index.html", String(), false, processor);
     });
     
-    // server.on("/on2", HTTP_GET, [](AsyncWebServerRequest *request)
-    // {
-    //   digitalWrite(pump2Pin, HIGH);    
-    //   request->send(LittleFS, "/index.html", String(), false, processor);
-    // });
+    server.on("/on2", HTTP_GET, [](AsyncWebServerRequest *request)
+    {
+      digitalWrite(pump2Pin, HIGH);
+      request->send(LittleFS, "/index.html", String(), false, processor);
+    });
     
     // Route to set GPIO to LOW
     server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request){
-      digitalWrite(pump1Pin, LOW);    
+      digitalWrite(pump1Pin, LOW);
       request->send(LittleFS, "/index.html", String(), false, processor);
     });
 
-    // server.on("/off2", HTTP_GET, [](AsyncWebServerRequest *request){
-    //   digitalWrite(pump2Pin, LOW);    
-    //   request->send(LittleFS, "/index.html", String(), false, processor);
-    // });
+    server.on("/off2", HTTP_GET, [](AsyncWebServerRequest *request){
+      digitalWrite(pump2Pin, LOW);
+      request->send(LittleFS, "/index.html", String(), false, processor);
+    });
 
     server.on("/temperature", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send_P(200, "text/plain", getTemperature().c_str());
