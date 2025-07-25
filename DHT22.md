@@ -1,6 +1,6 @@
 # Hardware
 
- |__NodeMCU__|___DHT22__|
+ |__NodeMCU__|__DHT22__ |
  |-----------|----------|
  |    Vin    |    Vcc   | --> It needs 3.3V or 5V
  |    D4     |    Out   |
@@ -50,4 +50,4 @@ Install DHT sensor Library (via Library Manager)
 
 # Reference
 https://github.com/adafruit/DHT-sensor-library/blob/master/examples/DHTtester/DHTtester.ino
-ChatGPT: https://chatgpt.com/c/6842fb43-4c1c-800b-ac62-14043a477519
+<!-- ChatGPT: https://chatgpt.com/c/6842fb43-4c1c-800b-ac62-14043a477519 -->

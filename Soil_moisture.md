@@ -50,5 +50,5 @@ _Higher value = dryer soil (sensor has higher resistance)_
 
 
 # Reference
-https://how2electronics.com/capacitive-soil-moisture-sensor-esp8266-esp32-oled-display/
-ChatGPT: https://chatgpt.com/c/6842fb43-4c1c-800b-ac62-14043a477519
+https://how2electronics.com/capacitive-soil-moisture-sensor-esp8266-esp32-oled-display/  
+<!-- ChatGPT: https://chatgpt.com/c/6842fb43-4c1c-800b-ac62-14043a477519 -->
