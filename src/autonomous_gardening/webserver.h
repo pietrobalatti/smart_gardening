@@ -94,6 +94,12 @@ void initialize_webserver(AsyncWebServer& server)
       request->send(LittleFS, "/style.css", "text/css");
     });
 
+    // Route to checj RSSI (WiFi signal strength)
+    server.on("/rssi", HTTP_GET, [](AsyncWebServerRequest *request){
+      int rssi = WiFi.RSSI();
+      request->send(200, "text/plain", String(rssi));
+    });
+
     // Route to set GPIO to HIGH
     server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request)
     {

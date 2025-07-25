@@ -31,6 +31,13 @@
  
     
   </p>
+
+  <p>
+    <span class="sensor-labels">Wi-Fi Signal</span>
+    <span id="rssi">%RSSI%</span>
+    <sup class="units">dBm</sup>
+  </p>
+  
 </body>
 <script>
 
@@ -57,6 +64,18 @@
     xhttp.open("GET", "/humidity", true);
     xhttp.send();
   }, 10000 ) ;
+
+  setInterval(function () {
+    var xhttp = new XMLHttpRequest();
+    xhttp.onreadystatechange = function () {
+      if (this.readyState == 4 && this.status == 200) {
+        document.getElementById("rssi").innerHTML = this.responseText;
+      }
+    };
+    xhttp.open("GET", "/rssi", true);
+    xhttp.send();
+  }, 1000); //Put back 10000 for every 10 seconds update
+
 
 
 </script>

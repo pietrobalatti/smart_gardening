@@ -9,16 +9,17 @@ It includes:
 ## Prerequistes
 Install Arduino libraries within the Arduino IDE by following [this guide](https://github.com/esp8266/Arduino#installing-with-boards-manager).
 
-Select as board "Generic ESP 8266".
+Select as board "Generic ESP 8266": *Tools->Board->ESP8266 Boards (3.1.2)->Generic ESP 8266 module*.
 
 ## HOW TO
 After having installed all the library and plugins listed below (EasyDDNS, ESPAsyncWebServer, LittleFS) you need to:
 - copy the file `config/user_data_example.h`, rename it as `config/user_data.h`, and place your data. Notice that this private data can not be commited in this repo since the `config/user_data.h` file is listed in the [.gitignore](https://git-scm.com/docs/gitignore) file
+- select the correct serial port: *Tools->Port*
 - select *Tools > ESP8266 LittleFS Data Upload* to upload the data folder files onto your device (index.html, style.css)
-- upload your sketch
+- upload the "autonomous_gardening.ino" sketch
 
 ## DDNS for esp8266
-Since I did not have a static IP, this project includes also the implementation of a Dynamic DNS [(DDNS)](https://en.wikipedia.org/wiki/Dynamic_DNS). For this purpose, the [EasyDDNS](https://github.com/ayushsharma82/EasyDDNS) library was included in the code. Multiple DDNS services are supported, namely "duckdns", "noip", "dyndns", "dynu", "enom", "all-inkl", "selfhost.de", "dyndns.it", "strato", "freemyip", and "afraid.org".
+Since I did not have a static IP, this project includes also the implementation of a Dynamic DNS ([DDNS](https://en.wikipedia.org/wiki/Dynamic_DNS)). For this purpose, the [EasyDDNS](https://github.com/ayushsharma82/EasyDDNS) library was included in the code. Multiple DDNS services are supported, namely "duckdns", "noip", "dyndns", "dynu", "enom", "all-inkl", "selfhost.de", "dyndns.it", "strato", "freemyip", and "afraid.org".
 
 I personally used "duckdns" since it is a free and open-source platform, but any of the above should work fine. 
 
