@@ -1,6 +1,8 @@
-// webserver.h
 #ifndef WEBSERVER_H
 #define WEBSERVER_H
+
+// DHT22 library
+#include "dht_sensor.h"
 
 // Set pumps GPIOs
 const int pump2Pin = 15; // D8
@@ -10,21 +12,15 @@ const int pump1Pin = 13; // D7
 String pump1State;
 String pump2State;
 
-String getTemperature() // function to get temperature from dht11
+String getTemperature() // function to get temperature from dht22
 {
-  
-//  float temperature =dht.readTemperature();
-  float temperature = 30.0;
- 
+  // temperature gets updated in dht_sensor.h 
   return String(temperature);
 }
 
-String getHumidity()  //  // function to get humifdity from dht11
+String getHumidity()  //  // function to get humifdity from dht22
 {
-    
-//  float humidity = dht.readHumidity();
-  float humidity = 40.0;
-  
+  // humidity gets updated in dht_sensor.h
   return String(humidity);
 }
 

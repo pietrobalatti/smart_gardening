@@ -2,6 +2,8 @@
 
 <html>
 <head>
+  <meta charset="UTF-8">
+
   <title>Pietro's smart gardening system</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
@@ -9,33 +11,37 @@
 </head>
 <body>
   <h1>Pietro's smart gardening system</h1>
-  <p>Pump 1 State<strong> %STATE%</strong></p>
+  <h2>Pump 1: %STATE%</h2>
   <p>
     <a href="/on"><button class="button">ON</button></a>
     <a href="/off"><button class="button button2">OFF</button></a>
   </p>
 
-  <p>Pump 2 State<strong> %STATE2%</strong></p>
+  <h2>Pump 2: %STATE2%</h2>
   <p>
     <a href="/on2"><button class="button">ON</button></a>
     <a href="/off2"><button class="button button2">OFF</button></a>
   </p>
+
+  <!-- Temperature -->
   <p>
-    <span class="sensor-labels">Temperature</span>
+    <span class="sensor-labels">🌡️ Temperature:</span>
     <span id="temperature">%TEMPERATURE%</span>
-    <sup class="units">&deg;C</sup>
- 
-    <span class="sensor-labels">Humidity</span>
+    <span> °C</span>
+  </p>
+  
+  <!-- Humidity -->
+  <p>
+    <span class="sensor-labels">💧 Humidity:</span>
     <span id="humidity">%HUMIDITY%</span>
-    <sup class="units">&#37;</sup>
- 
-    
+    <span> &#37;</span>
   </p>
 
+  <!-- WiFi -->
   <p>
-    <span class="sensor-labels">Wi-Fi Signal</span>
+    <span class="sensor-labels">📶 Wi-Fi Signal:</span>
     <span id="rssi">%RSSI%</span>
-    <sup class="units">dBm</sup>
+    <span> dBm</span>
   </p>
   
 </body>

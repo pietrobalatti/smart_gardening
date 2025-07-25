@@ -70,6 +70,11 @@ void setup() {
     Serial.println(newIP);
   });
 
+  /*****************************/
+  /*         DHT22 init        */
+  /*****************************/
+
+  setupDHT();
 
 }
 
@@ -96,6 +101,16 @@ void loop() {
   /*****************************/
   // Check for new public IP every 10 seconds
   EasyDDNS.update(10000);
+
+  /*****************************/
+  /*           DHT22           */
+  /*****************************/
+  static unsigned long lastUpdate = 0;
+  if (millis() - lastUpdate > 10000) { // every 10 sec
+    updateDHT();
+    lastUpdate = millis();
+  }
+
 
   // Loop rate (1s)
   // delay(1000);
