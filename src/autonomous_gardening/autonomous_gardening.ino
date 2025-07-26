@@ -15,6 +15,7 @@
 
 // Import private user data
 #include "config/user_data.h"
+#include <time.h>
 
 // Global variables
 AsyncWebServer server(port);
@@ -41,6 +42,18 @@ void setup() {
     Serial.print(".");
   }
   Serial.println(WiFi.localIP()); // Print the IP address
+
+  /*****************************/
+  /*       Real clock sync     */
+  /*****************************/
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.print("Waiting for NTP time sync");
+  while (time(nullptr) < 100000) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nTime synchronized!");
+
 
   /*****************************/
   /*       Webserver init      */
@@ -108,8 +121,16 @@ void loop() {
   static unsigned long lastUpdate = 0;
   if (millis() - lastUpdate > 10000) { // every 10 sec
     updateDHT();
+    logDHTReading();
     lastUpdate = millis();
   }
+
+  // static unsigned long lastLog = 0;
+  // if (millis() - lastLog > 10 * 60 * 1000) { // every 10 minutes
+  //   updateDHT();
+  //   logDHTReading();
+  //   lastLog = millis();
+  // }
 
 
   // Loop rate (1s)

@@ -128,6 +128,53 @@ void initialize_webserver(AsyncWebServer& server)
       request->send_P(200, "text/plain", getHumidity().c_str());
     });
 
+    server.on("/history.json", HTTP_GET, [](AsyncWebServerRequest *request){
+      File file = LittleFS.open("/history.txt", "r");
+      if (!file) {
+        request->send(500, "text/plain", "Failed to open file");
+        return;
+      }
+  
+      String json = "[";
+      bool first = true;
+      while (file.available()) {
+        String line = file.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+  
+        int idx1 = line.indexOf(',');
+        int idx2 = line.indexOf(',', idx1 + 1);
+        String ts = line.substring(0, idx1);
+        String temp = line.substring(idx1 + 1, idx2);
+        String hum = line.substring(idx2 + 1);
+  
+        if (!first) json += ",";
+        first = false;
+  
+        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum + "}";
+      }
+      json += "]";
+      file.close();
+      request->send(200, "application/json", json);
+    });
+
+
+    // Serve the history.txt, to open it: http://<your-device-ip>/history.txt
+    server.on("/history.txt", HTTP_GET, [](AsyncWebServerRequest *request){
+      File file = LittleFS.open("/history.txt", "r");
+      if (!file) {
+        request->send(500, "text/plain", "Failed to open file");
+        return;
+      }
+    
+      String content = "";
+      while (file.available()) {
+        content += file.readStringUntil('\n') + "\n";
+      }
+      file.close();
+    
+      request->send(200, "text/plain", content);
+    });
 
     return;
 }

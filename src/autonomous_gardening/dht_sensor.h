@@ -2,6 +2,7 @@
 #define DHT_SENSOR_H
 
 #include "DHT.h"
+#include <LittleFS.h>
 
 // Sensor configuration
 #define DHTPIN 2        // GPIO2 = D4 on NodeMCU
@@ -31,6 +32,16 @@ void updateDHT() {
   if (!isnan(h)) humidity = h;
 }
 
+void logDHTReading() {
+  File file = LittleFS.open("/history.txt", "a");
+  if (!file) return;
 
+  // unsigned long timestamp = millis(); // or get time from NTP
+  // file.printf("%lu,%.2f,%.2f\n", timestamp, temperature, humidity);
+  time_t now = time(nullptr);  // Get UNIX time
+  file.printf("%lu,%.2f,%.2f\n", now, temperature, humidity);
+
+  file.close();
+}
 
 #endif
