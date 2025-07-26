@@ -119,7 +119,7 @@ void loop() {
   /*           DHT22           */
   /*****************************/
   static unsigned long lastUpdate = 0;
-  if (millis() - lastUpdate > 10000) { // every 10 sec
+  if (millis() - lastUpdate > 1000) { // every 1 sec
     updateDHT();
     logDHTReading();
     lastUpdate = millis();
