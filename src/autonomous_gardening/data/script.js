@@ -63,32 +63,60 @@
 
       const ctx = document.getElementById("historyChart").getContext("2d");
       new Chart(ctx, {
-        type: 'line',
+        type: "line",
         data: {
           labels: labels,
           datasets: [
             {
-              label: '🌡️ Temp (°C)',
+              label: "🌡️ Temp (°C)",
               data: temps,
-              borderColor: 'red',
-              fill: false
+              borderColor: "red",
+              backgroundColor: "rgba(255, 0, 0, 0.1)",
+              yAxisID: 'yTemp',
+              tension: 0.3
             },
             {
-              label: '💧 Humidity (%)',
+              label: "💧 Humidity (%)",
               data: hums,
-              borderColor: 'blue',
-              fill: false
+              borderColor: "blue",
+              backgroundColor: "rgba(0, 0, 255, 0.1)",
+              yAxisID: 'yHum',
+              tension: 0.3
             }
           ]
         },
         options: {
           responsive: true,
           scales: {
-            x: { title: { display: true, text: 'Time' } },
-            y: { title: { display: true, text: 'Value' } }
+            x: {
+              title: {
+                display: true,
+                text: "Time"
+              }
+            },
+            yTemp: {
+              type: 'linear',
+              position: 'left',
+              title: {
+                display: true,
+                text: "Temperature (°C)"
+              }
+            },
+            yHum: {
+              type: 'linear',
+              position: 'right',
+              title: {
+                display: true,
+                text: "Humidity (%)"
+              },
+              grid: {
+                drawOnChartArea: false // Optional: avoid overlapping grid lines
+              }
+            }
           }
         }
       });
+      
     });
 
     setInterval(() => {
