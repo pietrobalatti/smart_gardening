@@ -73,7 +73,10 @@ void initialize_webserver(AsyncWebServer& server)
     {
       Serial.println("An Error has occurred while mounting LittleFS");
     }
+    
 
+    // ✅ Serve all static files from /data
+    server.serveStatic("/", LittleFS, "/");
 
     pinMode(pump1Pin, OUTPUT);
     pinMode(pump2Pin, OUTPUT);
@@ -175,6 +178,27 @@ void initialize_webserver(AsyncWebServer& server)
     
       request->send(200, "text/plain", content);
     });
+
+    server.on("/status.json", HTTP_GET, [](AsyncWebServerRequest *request){
+      FSInfo fs_info;
+      LittleFS.info(fs_info);
+    
+      unsigned long uptimeSec = millis() / 1000;
+      if (uptimeSec == 0 || uptimeSec > 315360000) uptimeSec = 1;  // sanity fallback
+      int rssi = WiFi.RSSI();
+      int heap = ESP.getFreeHeap();
+    
+      String json = "{";
+      json += "\"uptime\":" + String(uptimeSec) + ",";
+      json += "\"heap\":" + String(heap) + ",";
+      json += "\"rssi\":" + String(rssi) + ",";
+      json += "\"fs_total\":" + String(fs_info.totalBytes) + ",";
+      json += "\"fs_used\":" + String(fs_info.usedBytes);
+      json += "}";
+    
+      request->send(200, "application/json", json);
+    });
+    
 
     return;
 }
