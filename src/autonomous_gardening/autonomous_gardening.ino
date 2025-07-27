@@ -120,20 +120,22 @@ void loop() {
   /*****************************/
   /*           DHT22           */
   /*****************************/
-  static unsigned long lastUpdate = 0;
-  if (millis() - lastUpdate > 1000) { // every 1 sec
-    updateDHT();
-    logDHTReading();
-    lastUpdate = millis();
-  }
-
-  // static unsigned long lastLog = 0;
-  // if (millis() - lastLog > 10 * 60 * 1000) { // every 10 minutes
+  // static unsigned long lastUpdate = 0;
+  // if (millis() - lastUpdate > 30 * 60 * 1000) { // every 30 minutes
   //   updateDHT();
   //   logDHTReading();
-  //   lastLog = millis();
+  //   lastUpdate = millis();
   // }
 
+  // Log DHT readings every hour
+  static time_t lastLoggedHour = -1;
+  time_t now = time(nullptr);
+  struct tm* t = localtime(&now);
+  if (t->tm_min == 0 && t->tm_sec == 0 && t->tm_hour != lastLoggedHour) {
+    updateDHT();
+    logDHTReading();
+    lastLoggedHour = t->tm_hour;
+  }
 
   // Loop rate (1s)
   // delay(1000);

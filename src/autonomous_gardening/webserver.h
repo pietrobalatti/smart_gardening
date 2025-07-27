@@ -232,6 +232,30 @@ void initialize_webserver(AsyncWebServer& server)
       request->send(200, "text/plain", content);
     });
 
+    // Delete history file command
+    server.on("/deletehistory", HTTP_GET, [](AsyncWebServerRequest *request){
+      if (LittleFS.exists("/history.txt")) {
+        if (LittleFS.remove("/history.txt")) {
+          // Serial.println("history.txt deleted.");
+          request->send(200, "text/plain", "history.txt deleted.");
+        } else {
+          // Serial.println("Failed to delete history.txt.");
+          request->send(500, "text/plain", "Failed to delete history.txt.");
+        }
+      } else {
+        // Serial.println("history.txt does not exist.");
+        request->send(200, "text/plain", "No history.txt found.");
+      }
+    });
+
+    // Reboot device command
+    server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", "Rebooting...");
+      Serial.println("🔄 ESP8266 is rebooting...");
+      delay(500);  // give time to send the response
+      ESP.restart();
+    });
+
     server.on("/status.json", HTTP_GET, [](AsyncWebServerRequest *request){
       FSInfo fs_info;
       LittleFS.info(fs_info);
