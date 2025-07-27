@@ -13,7 +13,7 @@ p {
 }
 .button {
   display: inline-block;
-  background-color: #008CBA;
+  background-color: #3aa73a;
   border: none;
   border-radius: 4px;
   color: white;
@@ -23,8 +23,11 @@ p {
   margin: 2px;
   cursor: pointer;
 }
-.button2 {
+.buttonOFF {
   background-color: #f44336;
+}
+.buttonTimer {
+  background-color: #008CBA;
 }
 .units {
   font-size: 1.2rem;

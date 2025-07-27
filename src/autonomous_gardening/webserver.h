@@ -1,6 +1,8 @@
 #ifndef WEBSERVER_H
 #define WEBSERVER_H
 
+#include <Ticker.h>
+
 // DHT22 library
 #include "dht_sensor.h"
 
@@ -8,9 +10,12 @@
 const int pump2Pin = 15; // D8
 const int pump1Pin = 13; // D7
 
-// Stores pumps state
+// Stores pumps state and tickers for timed operations
 String pump1State;
 String pump2State;
+Ticker pump1Ticker;
+Ticker pump2Ticker;
+
 
 String getTemperature() // function to get temperature from dht22
 {
@@ -64,6 +69,16 @@ String processor(const String& var)
 
   return "none";
    
+}
+
+void turnOffPump1() {
+  digitalWrite(pump1Pin, LOW);
+  // Serial.println("Pump 1 OFF (after 5 min)");
+}
+
+void turnOffPump2() {
+  digitalWrite(pump2Pin, LOW);
+  // Serial.println("Pump 2 OFF (after 5 min)");
 }
 
 void initialize_webserver(AsyncWebServer& server)
@@ -121,6 +136,22 @@ void initialize_webserver(AsyncWebServer& server)
     server.on("/off2", HTTP_GET, [](AsyncWebServerRequest *request){
       digitalWrite(pump2Pin, LOW);
       request->send(LittleFS, "/index.html", String(), false, processor);
+    });
+
+    server.on("/on1timed", HTTP_GET, [](AsyncWebServerRequest *request){
+      digitalWrite(pump1Pin, HIGH);
+      // pump1Ticker.once_ms(5 * 60 * 1000, turnOffPump1); // 5 minutes timer
+      pump1Ticker.once_ms(5 * 1000, turnOffPump1); // 5 seconds timer for testing
+      // Serial.println("Pump 1 ON (timed for 5 min)");
+      request->redirect("/");
+    });
+    
+    server.on("/on2timed", HTTP_GET, [](AsyncWebServerRequest *request){
+      digitalWrite(pump2Pin, HIGH);
+      // pump2Ticker.once_ms(5 * 60 * 1000, turnOffPump2);
+      pump2Ticker.once_ms(5 * 1000, turnOffPump2); // 5 seconds timer for testing
+      // Serial.println("Pump 2 ON (timed for 5 min)");
+      request->redirect("/");
     });
 
     server.on("/temperature", HTTP_GET, [](AsyncWebServerRequest *request){
