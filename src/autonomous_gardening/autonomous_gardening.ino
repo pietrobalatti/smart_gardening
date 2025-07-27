@@ -47,6 +47,8 @@ void setup() {
   /*       Real clock sync     */
   /*****************************/
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);  // Europe/Rome rules
+  tzset();
   Serial.print("Waiting for NTP time sync");
   while (time(nullptr) < 100000) {
     delay(500);

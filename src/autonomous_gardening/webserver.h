@@ -15,6 +15,8 @@ String pump1State;
 String pump2State;
 Ticker pump1Ticker;
 Ticker pump2Ticker;
+time_t lastWateredPump1 = 0;
+time_t lastWateredPump2 = 0;
 
 
 String getTemperature() // function to get temperature from dht22
@@ -29,7 +31,18 @@ String getHumidity()  //  // function to get humifdity from dht22
   return String(humidity);
 }
 
-
+String formatTime(time_t t) {
+  struct tm* tm = localtime(&t);
+  char buf[32];
+  if (t == 0) return "never";
+  sprintf(buf, "%04d-%02d-%02d %02d:%02d",
+          tm->tm_year + 1900,
+          tm->tm_mon + 1,
+          tm->tm_mday,
+          tm->tm_hour,
+          tm->tm_min);
+  return String(buf);
+}
 
 // Replaces placeholder with LED state value
 String processor(const String& var)
@@ -65,6 +78,10 @@ String processor(const String& var)
   }
   else if (var == "HUMIDITY"){
     return getHumidity();
+  }else if (var == "LASTWATERED1"){
+    return formatTime(lastWateredPump1);
+  }  else if (var == "LASTWATERED2"){
+    return formatTime(lastWateredPump2);
   }
 
   return "none";
@@ -74,11 +91,14 @@ String processor(const String& var)
 void turnOffPump1() {
   digitalWrite(pump1Pin, LOW);
   // Serial.println("Pump 1 OFF (after 5 min)");
+  lastWateredPump1 = time(nullptr);
+  // html.replace("%LAST1%", formatTime(lastWateredPump1));
 }
 
 void turnOffPump2() {
   digitalWrite(pump2Pin, LOW);
   // Serial.println("Pump 2 OFF (after 5 min)");
+  lastWateredPump2 = time(nullptr);
 }
 
 void initialize_webserver(AsyncWebServer& server)
@@ -131,11 +151,13 @@ void initialize_webserver(AsyncWebServer& server)
     server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request){
       digitalWrite(pump1Pin, LOW);
       request->send(LittleFS, "/index.html", String(), false, processor);
+      lastWateredPump1 = time(nullptr);
     });
 
     server.on("/off2", HTTP_GET, [](AsyncWebServerRequest *request){
       digitalWrite(pump2Pin, LOW);
       request->send(LittleFS, "/index.html", String(), false, processor);
+      lastWateredPump2 = time(nullptr);
     });
 
     server.on("/on1timed", HTTP_GET, [](AsyncWebServerRequest *request){
