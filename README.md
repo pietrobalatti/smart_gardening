@@ -9,7 +9,7 @@ It includes:
 ## Prerequistes
 Install Arduino libraries within the Arduino IDE by following [this guide](https://github.com/esp8266/Arduino#installing-with-boards-manager).
 
-Select as board "Generic ESP 8266": *Tools->Board->ESP8266 Boards (3.1.2)->Generic ESP 8266 module*.
+Select as board "Generic ESP 8266": `Tools->Board->ESP8266 Boards (3.1.2)->Generic ESP 8266 module`.
 
 ## HOW TO
 After having installed all the library and plugins listed below (EasyDDNS, ESPAsyncWebServer, LittleFS) you need to:

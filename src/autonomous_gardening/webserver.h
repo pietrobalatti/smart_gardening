@@ -162,17 +162,13 @@ void initialize_webserver(AsyncWebServer& server)
 
     server.on("/on1timed", HTTP_GET, [](AsyncWebServerRequest *request){
       digitalWrite(pump1Pin, HIGH);
-      // pump1Ticker.once_ms(5 * 60 * 1000, turnOffPump1); // 5 minutes timer
-      pump1Ticker.once_ms(5 * 1000, turnOffPump1); // 5 seconds timer for testing
-      // Serial.println("Pump 1 ON (timed for 5 min)");
+      pump1Ticker.once_ms(3 * 60 * 1000, turnOffPump1); // 3 minutes timer
       request->redirect("/");
     });
     
     server.on("/on2timed", HTTP_GET, [](AsyncWebServerRequest *request){
       digitalWrite(pump2Pin, HIGH);
-      // pump2Ticker.once_ms(5 * 60 * 1000, turnOffPump2);
-      pump2Ticker.once_ms(5 * 1000, turnOffPump2); // 5 seconds timer for testing
-      // Serial.println("Pump 2 ON (timed for 5 min)");
+      pump2Ticker.once_ms(5 * 60 * 1000, turnOffPump2); // 5 minutes timer
       request->redirect("/");
     });
 
