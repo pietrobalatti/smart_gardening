@@ -11,6 +11,9 @@ h1 {
 p {
   font-size: 1.5rem;
 }
+.button-row {
+  margin: 1em 0;
+}
 .button {
   display: inline-block;
   background-color: #3aa73a;
@@ -29,6 +32,11 @@ p {
     padding: 10px 20px;
     font-size: 16px;
   }
+  .timer-input {
+    font-size: 16px;
+    padding: 8px 6px;
+    width: 56px;
+  }
 }
 
 .buttonOFF {
@@ -37,6 +45,30 @@ p {
 .buttonTimer {
   background-color: #008CBA;
 }
+.buttonRefresh {
+  background-color: #586069;
+}
+.button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.timer-form {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  margin: 2px;
+}
+.timer-input {
+  border: 1px solid #999;
+  border-radius: 4px;
+  font-size: 24px;
+  padding: 14px 8px;
+  text-align: center;
+  width: 72px;
+}
+.timer-unit {
+  font-size: 1.2rem;
+}
 .units {
   font-size: 1.2rem;
  }
@@ -44,6 +76,11 @@ p {
   font-size: 1.5rem;
   vertical-align:middle;
   padding-bottom: 15px;
+}
+
+.sensor-raw {
+  color: #555;
+  font-size: 1rem;
 }
 
 #statusList {

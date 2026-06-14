@@ -16,19 +16,27 @@
   <h1>🌱 Pietro's smart gardening system</h1>
   <h2>Pump 1 (east): %STATE%</h2>
   <p><em>Last watered on: %LASTWATERED1%</em></p>
-  <p>
+  <div class="button-row">
     <a href="/on"><button class="button">ON</button></a>
     <a href="/off"><button class="button buttonOFF">OFF</button></a>
-    <a href="/on1timed"><button class="button buttonTimer">3 min</button></a>
-  </p>
+    <form class="timer-form" action="/on1timed" method="get">
+      <input class="timer-input" type="number" name="minutes" min="%MINWATERINGMINUTES%" max="%MAXWATERINGMINUTES%" step="1" value="%PUMP1DEFAULTWATERINGMINUTES%" aria-label="Pump 1 watering duration in minutes">
+      <span class="timer-unit">min</span>
+      <button class="button buttonTimer" type="submit">Timer</button>
+    </form>
+  </div>
 
   <h2>Pump 2 (west): %STATE2%</h2>
   <p><em>Last watered on: %LASTWATERED2%</em></p>
-  <p>
+  <div class="button-row">
     <a href="/on2"><button class="button">ON</button></a>
     <a href="/off2"><button class="button buttonOFF">OFF</button></a>
-    <a href="/on2timed"><button class="button buttonTimer">5 min</button></a>
-  </p>
+    <form class="timer-form" action="/on2timed" method="get">
+      <input class="timer-input" type="number" name="minutes" min="%MINWATERINGMINUTES%" max="%MAXWATERINGMINUTES%" step="1" value="%PUMP2DEFAULTWATERINGMINUTES%" aria-label="Pump 2 watering duration in minutes">
+      <span class="timer-unit">min</span>
+      <button class="button buttonTimer" type="submit">Timer</button>
+    </form>
+  </div>
 
   <!-- Temperature -->
   <p>
@@ -44,6 +52,19 @@
     <span> &#37;</span>
   </p>
 
+  <!-- Soil moisture -->
+  <p>
+    <span class="sensor-labels">🌱 Soil moisture:</span>
+    <span id="soilMoisture">%SOILMOISTURE%</span>
+    <span> &#37;</span>
+    <span class="sensor-raw">(raw <span id="soilMoistureRaw">%SOILMOISTURERAW%</span>)</span>
+  </p>
+
+  <p>
+    <button id="refreshSensors" class="button buttonRefresh" type="button">Refresh sensors</button>
+    <span id="refreshStatus" class="sensor-raw"></span>
+  </p>
+
   <!-- WiFi -->
   <!-- <p>
     <span class="sensor-labels">📶 Wi-Fi Signal:</span>
@@ -54,14 +75,14 @@
   <!-- System time -->
   <p><strong>⏰ System Time:</strong> <span id="systemTime">loading...</span></p>
 
-  <!-- Temepraure/humidity history plot -->
+  <!-- Temperature/humidity/soil moisture history plot -->
   <canvas id="historyChart" width="100%" height="40"></canvas>
 
   <!-- System status -->
   <h2>📊 System Status</h2>
   <ul id="statusList">
     <li>⏱️ Uptime: <span id="uptime">loading...</span></li>
-    <li>🧠 Free Heap: <span id="heap">loading...</span> bytes</li>
+    <!-- <li>🧠 Free Heap: <span id="heap">loading...</span> bytes</li> -->
     <li>📶 Wi-Fi Signal: <span id="rssi">loading...</span> dBm</li>
     <li>💾 Flash Storage: <span id="fs">loading...</span></li>
   </ul>

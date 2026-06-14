@@ -9,6 +9,10 @@
 // Set pumps GPIOs
 const int pump2Pin = 15; // D8
 const int pump1Pin = 13; // D7
+const unsigned int pump1DefaultWateringMinutes = 3;
+const unsigned int pump2DefaultWateringMinutes = 5;
+const unsigned int minWateringMinutes = 1;
+const unsigned int maxWateringMinutes = 60;
 
 // Stores pumps state and tickers for timed operations
 String pump1State;
@@ -17,6 +21,9 @@ Ticker pump1Ticker;
 Ticker pump2Ticker;
 time_t lastWateredPump1 = 0;
 time_t lastWateredPump2 = 0;
+volatile bool sensorRefreshRequested = false;
+unsigned long sensorRefreshRequestMillis = 0;
+unsigned long sensorLastRefreshMillis = 0;
 
 
 String getTemperature() // function to get temperature from dht22
@@ -31,6 +38,50 @@ String getHumidity()  //  // function to get humifdity from dht22
   return String(humidity);
 }
 
+String getSoilMoisture()
+{
+  return String(soilMoisture, 1);
+}
+
+String getSoilMoistureRaw()
+{
+  return String(soilMoistureRaw);
+}
+
+String getSensorReadingsJson()
+{
+  String json = "{";
+  json += "\"temperature\":" + getTemperature() + ",";
+  json += "\"humidity\":" + getHumidity() + ",";
+  json += "\"soilMoisture\":" + getSoilMoisture() + ",";
+  json += "\"soilMoistureRaw\":" + getSoilMoistureRaw() + ",";
+  json += "\"refreshPending\":" + String(sensorRefreshRequested ? "true" : "false") + ",";
+  json += "\"lastRefreshMillis\":" + String(sensorLastRefreshMillis);
+  json += "}";
+  return json;
+}
+
+void requestSensorRefresh()
+{
+  sensorRefreshRequestMillis = millis();
+  sensorRefreshRequested = true;
+}
+
+void refreshSensorReadings()
+{
+  updateDHT();
+  updateSoilMoisture();
+  sensorLastRefreshMillis = millis();
+}
+
+void handleRequestedSensorRefresh()
+{
+  if (!sensorRefreshRequested) return;
+
+  sensorRefreshRequested = false;
+  refreshSensorReadings();
+}
+
 String formatTime(time_t t) {
   struct tm* tm = localtime(&t);
   char buf[32];
@@ -42,6 +93,27 @@ String formatTime(time_t t) {
           tm->tm_hour,
           tm->tm_min);
   return String(buf);
+}
+
+unsigned int getWateringMinutes(AsyncWebServerRequest *request, unsigned int defaultMinutes)
+{
+  unsigned int minutes = defaultMinutes;
+
+  if (request->hasParam("minutes")) {
+    int requestedMinutes = request->getParam("minutes")->value().toInt();
+    if (requestedMinutes > 0) {
+      minutes = (unsigned int)requestedMinutes;
+    }
+  }
+
+  if (minutes < minWateringMinutes) return minWateringMinutes;
+  if (minutes > maxWateringMinutes) return maxWateringMinutes;
+  return minutes;
+}
+
+unsigned long wateringDurationMs(unsigned int minutes)
+{
+  return (unsigned long)minutes * 60UL * 1000UL;
 }
 
 // Replaces placeholder with LED state value
@@ -78,10 +150,22 @@ String processor(const String& var)
   }
   else if (var == "HUMIDITY"){
     return getHumidity();
+  }else if (var == "SOILMOISTURE"){
+    return getSoilMoisture();
+  }else if (var == "SOILMOISTURERAW"){
+    return getSoilMoistureRaw();
   }else if (var == "LASTWATERED1"){
     return formatTime(lastWateredPump1);
   }  else if (var == "LASTWATERED2"){
     return formatTime(lastWateredPump2);
+  }else if (var == "PUMP1DEFAULTWATERINGMINUTES"){
+    return String(pump1DefaultWateringMinutes);
+  }else if (var == "PUMP2DEFAULTWATERINGMINUTES"){
+    return String(pump2DefaultWateringMinutes);
+  }else if (var == "MINWATERINGMINUTES"){
+    return String(minWateringMinutes);
+  }else if (var == "MAXWATERINGMINUTES"){
+    return String(maxWateringMinutes);
   }
 
   return "none";
@@ -161,29 +245,52 @@ void initialize_webserver(AsyncWebServer& server)
     });
 
     server.on("/on1timed", HTTP_GET, [](AsyncWebServerRequest *request){
+      unsigned int minutes = getWateringMinutes(request, pump1DefaultWateringMinutes);
       digitalWrite(pump1Pin, HIGH);
-      pump1Ticker.once_ms(3 * 60 * 1000, turnOffPump1); // 3 minutes timer
+      pump1Ticker.once_ms(wateringDurationMs(minutes), turnOffPump1);
       request->redirect("/");
     });
     
     server.on("/on2timed", HTTP_GET, [](AsyncWebServerRequest *request){
+      unsigned int minutes = getWateringMinutes(request, pump2DefaultWateringMinutes);
       digitalWrite(pump2Pin, HIGH);
-      pump2Ticker.once_ms(5 * 60 * 1000, turnOffPump2); // 5 minutes timer
+      pump2Ticker.once_ms(wateringDurationMs(minutes), turnOffPump2);
       request->redirect("/");
     });
 
     server.on("/temperature", HTTP_GET, [](AsyncWebServerRequest *request){
-      request->send_P(200, "text/plain", getTemperature().c_str());
+      request->send(200, "text/plain", getTemperature());
     });
     
     server.on("/humidity", HTTP_GET, [](AsyncWebServerRequest *request){
-      request->send_P(200, "text/plain", getHumidity().c_str());
+      request->send(200, "text/plain", getHumidity());
+    });
+
+    server.on("/soilmoisture", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", getSoilMoisture());
+    });
+
+    server.on("/soilmoistureraw", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", getSoilMoistureRaw());
+    });
+
+    server.on("/refreshsensors", HTTP_GET, [](AsyncWebServerRequest *request){
+      requestSensorRefresh();
+      String json = "{";
+      json += "\"requested\":true,";
+      json += "\"requestMillis\":" + String(sensorRefreshRequestMillis);
+      json += "}";
+      request->send(200, "application/json", json);
+    });
+
+    server.on("/sensors.json", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "application/json", getSensorReadingsJson());
     });
 
     server.on("/history.json", HTTP_GET, [](AsyncWebServerRequest *request){
       File file = LittleFS.open("/history.txt", "r");
       if (!file) {
-        request->send(500, "text/plain", "Failed to open file");
+        request->send(200, "application/json", "[]");
         return;
       }
   
@@ -196,14 +303,18 @@ void initialize_webserver(AsyncWebServer& server)
   
         int idx1 = line.indexOf(',');
         int idx2 = line.indexOf(',', idx1 + 1);
+        int idx3 = line.indexOf(',', idx2 + 1);
+        if (idx1 < 0 || idx2 < 0 || idx3 < 0) continue;
+
         String ts = line.substring(0, idx1);
         String temp = line.substring(idx1 + 1, idx2);
-        String hum = line.substring(idx2 + 1);
+        String hum = line.substring(idx2 + 1, idx3);
+        String soil = line.substring(idx3 + 1);
   
         if (!first) json += ",";
         first = false;
   
-        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum + "}";
+        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum + ",\"soil\":" + soil + "}";
       }
       json += "]";
       file.close();

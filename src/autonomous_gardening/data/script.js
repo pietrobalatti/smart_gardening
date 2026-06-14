@@ -1,40 +1,3 @@
-
-setInterval(function ( ) 
-{
-  var xhttp = new XMLHttpRequest();
-  xhttp.onreadystatechange = function() {
-    if (this.readyState == 4 && this.status == 200)
-      {
-      document.getElementById("temperature").innerHTML = this.responseText;
-    }
-  };
-  xhttp.open("GET", "/temperature", true);
-  xhttp.send();
-}, 10000 ) ;
-
-setInterval(function ( ) {
-  var xhttp = new XMLHttpRequest();
-  xhttp.onreadystatechange = function() {
-    if (this.readyState == 4 && this.status == 200) {
-      document.getElementById("humidity").innerHTML = this.responseText;
-    }
-  };
-  xhttp.open("GET", "/humidity", true);
-  xhttp.send();
-}, 10000 ) ;
-
-setInterval(function () {
-  var xhttp = new XMLHttpRequest();
-  xhttp.onreadystatechange = function () {
-    if (this.readyState == 4 && this.status == 200) {
-      document.getElementById("rssi").innerHTML = this.responseText;
-    }
-  };
-  xhttp.open("GET", "/rssi", true);
-  xhttp.send();
-}, 1000); //Put back 10000 for every 10 seconds update
-
-
 function fetchAndUpdate(endpoint, elementId) {
   var xhttp = new XMLHttpRequest();
   xhttp.onreadystatechange = function () {
@@ -46,16 +9,87 @@ function fetchAndUpdate(endpoint, elementId) {
   xhttp.send();
 }
 
+function updateSensorDisplay(data) {
+  document.getElementById("temperature").innerHTML = data.temperature;
+  document.getElementById("humidity").innerHTML = data.humidity;
+  document.getElementById("soilMoisture").innerHTML = data.soilMoisture;
+  document.getElementById("soilMoistureRaw").innerHTML = data.soilMoistureRaw;
+}
+
+function fetchSensorDisplay() {
+  return fetch("/sensors.json")
+    .then(response => {
+      if (!response.ok) throw new Error("Failed to fetch sensors");
+      return response.json();
+    })
+    .then(data => {
+      updateSensorDisplay(data);
+      return data;
+    });
+}
+
+function pollSensorRefresh(requestMillis, attempt) {
+  return fetchSensorDisplay()
+    .then(data => {
+      const refreshComplete = !data.refreshPending && data.lastRefreshMillis >= requestMillis;
+
+      if (refreshComplete) {
+        return data;
+      }
+
+      if (attempt >= 20) {
+        throw new Error("Sensor refresh timed out");
+      }
+
+      return new Promise(resolve => setTimeout(resolve, 500))
+        .then(() => pollSensorRefresh(requestMillis, attempt + 1));
+    });
+}
+
+function refreshSensors() {
+  var button = document.getElementById("refreshSensors");
+  var status = document.getElementById("refreshStatus");
+
+  button.disabled = true;
+  status.innerHTML = "refreshing...";
+
+  fetch("/refreshsensors")
+    .then(response => {
+      if (!response.ok) throw new Error("Failed to request sensor refresh");
+      return response.json();
+    })
+    .then(data => pollSensorRefresh(data.requestMillis, 0))
+    .then(data => {
+      updateSensorDisplay(data);
+      status.innerHTML = "updated";
+    })
+    .catch(() => {
+      status.innerHTML = "failed";
+    })
+    .finally(() => {
+      button.disabled = false;
+    });
+}
+
+document.getElementById("refreshSensors").addEventListener("click", refreshSensors);
+
 setInterval(function () {
   fetchAndUpdate("/temperature", "temperature");
   fetchAndUpdate("/humidity", "humidity");
+  fetchAndUpdate("/soilmoisture", "soilMoisture");
+  fetchAndUpdate("/soilmoistureraw", "soilMoistureRaw");
   fetchAndUpdate("/rssi", "rssi");
 }, 10000);
 
 // Draw chart
 fetch("/history.json")
-  .then(response => response.json())
+  .then(response => {
+    if (!response.ok) return [];
+    return response.json();
+  })
   .then(data => {
+    if (data.length === 0) return;
+
     // const labels = data.map(dp => new Date(parseInt(dp.t) * 1000).toLocaleTimeString());
     // const labels = data.map(dp => {
     //   const d = new Date(dp.t * 1000);
@@ -91,6 +125,7 @@ fetch("/history.json")
 
     const temps = data.map(dp => dp.temp);
     const hums = data.map(dp => dp.hum);
+    const soils = data.map(dp => dp.soil);
 
     const minTemp = Math.min(...temps);
     const maxTemp = Math.max(...temps);
@@ -101,8 +136,9 @@ fetch("/history.json")
       ? yTempMin + 5
       : Math.ceil(maxTemp / 5) * 5;
 
-    const minHum = Math.min(...hums);
-    const maxHum = Math.max(...hums);
+    const percentValues = hums.concat(soils);
+    const minHum = Math.min(...percentValues);
+    const maxHum = Math.max(...percentValues);
     const humRange = maxHum - minHum;
 
     const yHumMin = Math.floor(minHum / 5) * 5;
@@ -129,6 +165,14 @@ fetch("/history.json")
             data: hums,
             borderColor: "blue",
             backgroundColor: "rgba(0, 0, 255, 0.1)",
+            yAxisID: 'yHum',
+            tension: 0.3
+          },
+          {
+            label: "🌱 Soil moisture (%)",
+            data: soils,
+            borderColor: "green",
+            backgroundColor: "rgba(0, 128, 0, 0.1)",
             yAxisID: 'yHum',
             tension: 0.3
           }
@@ -159,7 +203,7 @@ fetch("/history.json")
             position: 'right',
             title: {
               display: true,
-              text: "Humidity (%)"
+              text: "Humidity / soil moisture (%)"
             },
             grid: {
               drawOnChartArea: false // Optional: avoid overlapping grid lines
@@ -172,7 +216,8 @@ fetch("/history.json")
       }
     });
     
-  });
+  })
+  .catch(() => {});
 
 setInterval(() => {
   const now = new Date();

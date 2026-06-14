@@ -19,7 +19,12 @@
 
 // Global variables
 AsyncWebServer server(port);
+int lastLoggedHour = -1;
 
+void readAndLogSensors() {
+  refreshSensorReadings();
+  logDHTReading();
+}
 
 void setup() { 
 
@@ -91,6 +96,24 @@ void setup() {
 
   setupDHT();
 
+  /*****************************/
+  /*    Soil moisture init     */
+  /*****************************/
+
+  setupSoilMoisture();
+
+  /*****************************/
+  /*      Startup logging      */
+  /*****************************/
+
+  loadSensorHistory();
+  readAndLogSensors();
+  time_t startupNow = time(nullptr);
+  struct tm* startupTime = localtime(&startupNow);
+  if (startupTime != nullptr) {
+    lastLoggedHour = startupTime->tm_hour;
+  }
+
 }
 
 void loop() {
@@ -120,6 +143,8 @@ void loop() {
   /*****************************/
   /*           DHT22           */
   /*****************************/
+  handleRequestedSensorRefresh();
+
   // static unsigned long lastUpdate = 0;
   // if (millis() - lastUpdate > 30 * 60 * 1000) { // every 30 minutes
   //   updateDHT();
@@ -128,13 +153,21 @@ void loop() {
   // }
 
   // Log DHT readings every hour
-  static time_t lastLoggedHour = -1;
   time_t now = time(nullptr);
   struct tm* t = localtime(&now);
   if (t->tm_min == 0 && t->tm_sec == 0 && t->tm_hour != lastLoggedHour) {
-    updateDHT();
-    logDHTReading();
+    readAndLogSensors();
     lastLoggedHour = t->tm_hour;
+  }
+
+  /*****************************/
+  /*      Soil moisture        */
+  /*****************************/
+  // Keep the webpage value fresh without reading the analog input continuously.
+  static unsigned long lastSoilMoistureUpdate = 0;
+  if (millis() - lastSoilMoistureUpdate > 10000) {
+    updateSoilMoisture();
+    lastSoilMoistureUpdate = millis();
   }
 
   // Loop rate (1s)
