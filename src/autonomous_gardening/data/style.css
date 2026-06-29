@@ -83,6 +83,35 @@ p {
   font-size: 1rem;
 }
 
+.chart-section {
+  margin: 1.5rem auto;
+  max-width: 960px;
+  width: 95vw;
+}
+
+.chart-section h3 {
+  color: #333;
+  margin: 0 0 0.5rem;
+}
+
+.chart-frame {
+  height: 280px;
+  position: relative;
+  width: 100%;
+}
+
+.chart-frame canvas {
+  display: block;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+@media screen and (max-width: 600px) {
+  .chart-frame {
+    height: 240px;
+  }
+}
+
 #statusList {
   list-style-type: none;
   padding-left: 0;

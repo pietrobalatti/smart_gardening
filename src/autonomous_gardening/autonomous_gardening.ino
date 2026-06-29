@@ -21,9 +21,9 @@
 AsyncWebServer server(port);
 int lastLoggedHour = -1;
 
-void readAndLogSensors() {
+void readAndLogSensors(float pump1WateringMinutes = 0.0, float pump2WateringMinutes = 0.0) {
   refreshSensorReadings();
-  logDHTReading();
+  logDHTReading(pump1WateringMinutes, pump2WateringMinutes);
 }
 
 void setup() { 
@@ -143,6 +143,7 @@ void loop() {
   /*****************************/
   /*           DHT22           */
   /*****************************/
+  handlePumpStopRequests();
   handleRequestedSensorRefresh();
 
   // static unsigned long lastUpdate = 0;
@@ -155,8 +156,14 @@ void loop() {
   // Log DHT readings every hour
   time_t now = time(nullptr);
   struct tm* t = localtime(&now);
-  if (t->tm_min == 0 && t->tm_sec == 0 && t->tm_hour != lastLoggedHour) {
-    readAndLogSensors();
+  if (t != nullptr && t->tm_min == 0 && t->tm_hour != lastLoggedHour) {
+    time_t currentHourStart = getHourStart(now);
+    time_t loggedHourStart = currentHourStart - 3600;
+    accountPumpRuntimeUntil(currentHourStart);
+    readAndLogSensors(
+      consumeWateringMinutes(loggedHourStart, 1),
+      consumeWateringMinutes(loggedHourStart, 2)
+    );
     lastLoggedHour = t->tm_hour;
   }
 

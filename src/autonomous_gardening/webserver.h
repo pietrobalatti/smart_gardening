@@ -24,6 +24,21 @@ time_t lastWateredPump2 = 0;
 volatile bool sensorRefreshRequested = false;
 unsigned long sensorRefreshRequestMillis = 0;
 unsigned long sensorLastRefreshMillis = 0;
+time_t pump1StartedAt = 0;
+time_t pump2StartedAt = 0;
+volatile bool pump1StopRequested = false;
+volatile bool pump2StopRequested = false;
+volatile time_t pump1RequestedStopAt = 0;
+volatile time_t pump2RequestedStopAt = 0;
+
+struct WateringBucket {
+  time_t hourStart;
+  float pump1WateringMinutes;
+  float pump2WateringMinutes;
+};
+
+WateringBucket wateringBuckets[MAX_HISTORY];
+int wateringBucketCount = 0;
 
 
 String getTemperature() // function to get temperature from dht22
@@ -116,6 +131,192 @@ unsigned long wateringDurationMs(unsigned int minutes)
   return (unsigned long)minutes * 60UL * 1000UL;
 }
 
+time_t getHourStart(time_t timestamp)
+{
+  if (timestamp <= 0) return 0;
+
+  struct tm* timeInfo = localtime(&timestamp);
+  if (timeInfo == nullptr) return 0;
+
+  struct tm hourInfo = *timeInfo;
+  hourInfo.tm_min = 0;
+  hourInfo.tm_sec = 0;
+  return mktime(&hourInfo);
+}
+
+int findWateringBucket(time_t hourStart)
+{
+  for (int i = 0; i < wateringBucketCount; i++) {
+    if (wateringBuckets[i].hourStart == hourStart) return i;
+  }
+
+  return -1;
+}
+
+int getWateringBucket(time_t hourStart)
+{
+  int existingBucket = findWateringBucket(hourStart);
+  if (existingBucket >= 0) return existingBucket;
+
+  if (wateringBucketCount < MAX_HISTORY) {
+    int newBucket = wateringBucketCount++;
+    wateringBuckets[newBucket].hourStart = hourStart;
+    wateringBuckets[newBucket].pump1WateringMinutes = 0.0;
+    wateringBuckets[newBucket].pump2WateringMinutes = 0.0;
+    return newBucket;
+  }
+
+  int oldestBucket = 0;
+  for (int i = 1; i < MAX_HISTORY; i++) {
+    if (wateringBuckets[i].hourStart < wateringBuckets[oldestBucket].hourStart) {
+      oldestBucket = i;
+    }
+  }
+
+  wateringBuckets[oldestBucket].hourStart = hourStart;
+  wateringBuckets[oldestBucket].pump1WateringMinutes = 0.0;
+  wateringBuckets[oldestBucket].pump2WateringMinutes = 0.0;
+  return oldestBucket;
+}
+
+void addWateringMinutes(time_t hourStart, unsigned int pumpNumber, float minutes)
+{
+  if (hourStart <= 0 || minutes <= 0.0) return;
+
+  int bucket = getWateringBucket(hourStart);
+  if (pumpNumber == 1) {
+    wateringBuckets[bucket].pump1WateringMinutes += minutes;
+  } else if (pumpNumber == 2) {
+    wateringBuckets[bucket].pump2WateringMinutes += minutes;
+  }
+}
+
+void addPumpWateringDuration(unsigned int pumpNumber, time_t startTime, time_t endTime)
+{
+  if (startTime <= 0 || endTime <= startTime) return;
+
+  time_t cursor = startTime;
+  while (cursor < endTime) {
+    time_t hourStart = getHourStart(cursor);
+    if (hourStart <= 0) return;
+
+    time_t hourEnd = hourStart + 3600;
+    time_t segmentEnd = (endTime < hourEnd) ? endTime : hourEnd;
+    addWateringMinutes(hourStart, pumpNumber, (float)(segmentEnd - cursor) / 60.0);
+    cursor = segmentEnd;
+  }
+}
+
+void accountPumpRuntimeUntil(time_t boundary)
+{
+  if (boundary <= 0) return;
+
+  if (pump1StartedAt > 0 && pump1StartedAt < boundary) {
+    addPumpWateringDuration(1, pump1StartedAt, boundary);
+    pump1StartedAt = boundary;
+  }
+
+  if (pump2StartedAt > 0 && pump2StartedAt < boundary) {
+    addPumpWateringDuration(2, pump2StartedAt, boundary);
+    pump2StartedAt = boundary;
+  }
+}
+
+float consumeWateringMinutes(time_t hourStart, unsigned int pumpNumber)
+{
+  int bucket = findWateringBucket(hourStart);
+  if (bucket < 0) return 0.0;
+
+  if (pumpNumber == 1) {
+    float minutes = wateringBuckets[bucket].pump1WateringMinutes;
+    wateringBuckets[bucket].pump1WateringMinutes = 0.0;
+    return minutes;
+  }
+
+  if (pumpNumber == 2) {
+    float minutes = wateringBuckets[bucket].pump2WateringMinutes;
+    wateringBuckets[bucket].pump2WateringMinutes = 0.0;
+    return minutes;
+  }
+
+  return 0.0;
+}
+
+void startPump1()
+{
+  if (pump1StartedAt == 0) {
+    pump1StartedAt = time(nullptr);
+  }
+  digitalWrite(pump1Pin, HIGH);
+}
+
+void startPump2()
+{
+  if (pump2StartedAt == 0) {
+    pump2StartedAt = time(nullptr);
+  }
+  digitalWrite(pump2Pin, HIGH);
+}
+
+void stopPump1At(time_t stopTime)
+{
+  bool wasRunning = (pump1StartedAt > 0 || digitalRead(pump1Pin));
+
+  pump1Ticker.detach();
+  if (pump1StartedAt > 0) {
+    addPumpWateringDuration(1, pump1StartedAt, stopTime);
+    pump1StartedAt = 0;
+  }
+
+  digitalWrite(pump1Pin, LOW);
+  if (wasRunning) {
+    lastWateredPump1 = stopTime;
+  }
+}
+
+void stopPump2At(time_t stopTime)
+{
+  bool wasRunning = (pump2StartedAt > 0 || digitalRead(pump2Pin));
+
+  pump2Ticker.detach();
+  if (pump2StartedAt > 0) {
+    addPumpWateringDuration(2, pump2StartedAt, stopTime);
+    pump2StartedAt = 0;
+  }
+
+  digitalWrite(pump2Pin, LOW);
+  if (wasRunning) {
+    lastWateredPump2 = stopTime;
+  }
+}
+
+void stopPump1()
+{
+  stopPump1At(time(nullptr));
+}
+
+void stopPump2()
+{
+  stopPump2At(time(nullptr));
+}
+
+void handlePumpStopRequests()
+{
+  if (pump1StopRequested) {
+    time_t stopTime = pump1RequestedStopAt;
+    pump1RequestedStopAt = 0;
+    pump1StopRequested = false;
+    stopPump1At((stopTime > 0) ? stopTime : time(nullptr));
+  }
+
+  if (pump2StopRequested) {
+    time_t stopTime = pump2RequestedStopAt;
+    pump2RequestedStopAt = 0;
+    pump2StopRequested = false;
+    stopPump2At((stopTime > 0) ? stopTime : time(nullptr));
+  }
+}
+
 // Replaces placeholder with LED state value
 String processor(const String& var)
 {
@@ -174,15 +375,14 @@ String processor(const String& var)
 
 void turnOffPump1() {
   digitalWrite(pump1Pin, LOW);
-  // Serial.println("Pump 1 OFF (after 5 min)");
-  lastWateredPump1 = time(nullptr);
-  // html.replace("%LAST1%", formatTime(lastWateredPump1));
+  pump1RequestedStopAt = time(nullptr);
+  pump1StopRequested = true;
 }
 
 void turnOffPump2() {
   digitalWrite(pump2Pin, LOW);
-  // Serial.println("Pump 2 OFF (after 5 min)");
-  lastWateredPump2 = time(nullptr);
+  pump2RequestedStopAt = time(nullptr);
+  pump2StopRequested = true;
 }
 
 void initialize_webserver(AsyncWebServer& server)
@@ -221,39 +421,41 @@ void initialize_webserver(AsyncWebServer& server)
     // Route to set GPIO to HIGH
     server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-      digitalWrite(pump1Pin, HIGH);
+      pump1Ticker.detach();
+      startPump1();
       request->send(LittleFS, "/index.html", String(), false, processor);
     });
     
     server.on("/on2", HTTP_GET, [](AsyncWebServerRequest *request)
     {
-      digitalWrite(pump2Pin, HIGH);
+      pump2Ticker.detach();
+      startPump2();
       request->send(LittleFS, "/index.html", String(), false, processor);
     });
     
     // Route to set GPIO to LOW
     server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request){
-      digitalWrite(pump1Pin, LOW);
+      stopPump1();
       request->send(LittleFS, "/index.html", String(), false, processor);
-      lastWateredPump1 = time(nullptr);
     });
 
     server.on("/off2", HTTP_GET, [](AsyncWebServerRequest *request){
-      digitalWrite(pump2Pin, LOW);
+      stopPump2();
       request->send(LittleFS, "/index.html", String(), false, processor);
-      lastWateredPump2 = time(nullptr);
     });
 
     server.on("/on1timed", HTTP_GET, [](AsyncWebServerRequest *request){
       unsigned int minutes = getWateringMinutes(request, pump1DefaultWateringMinutes);
-      digitalWrite(pump1Pin, HIGH);
+      startPump1();
+      pump1Ticker.detach();
       pump1Ticker.once_ms(wateringDurationMs(minutes), turnOffPump1);
       request->redirect("/");
     });
     
     server.on("/on2timed", HTTP_GET, [](AsyncWebServerRequest *request){
       unsigned int minutes = getWateringMinutes(request, pump2DefaultWateringMinutes);
-      digitalWrite(pump2Pin, HIGH);
+      startPump2();
+      pump2Ticker.detach();
       pump2Ticker.once_ms(wateringDurationMs(minutes), turnOffPump2);
       request->redirect("/");
     });
@@ -304,17 +506,25 @@ void initialize_webserver(AsyncWebServer& server)
         int idx1 = line.indexOf(',');
         int idx2 = line.indexOf(',', idx1 + 1);
         int idx3 = line.indexOf(',', idx2 + 1);
+        int idx4 = line.indexOf(',', idx3 + 1);
+        int idx5 = (idx4 < 0) ? -1 : line.indexOf(',', idx4 + 1);
         if (idx1 < 0 || idx2 < 0 || idx3 < 0) continue;
 
         String ts = line.substring(0, idx1);
         String temp = line.substring(idx1 + 1, idx2);
         String hum = line.substring(idx2 + 1, idx3);
-        String soil = line.substring(idx3 + 1);
+        String soil = (idx4 < 0) ? line.substring(idx3 + 1) : line.substring(idx3 + 1, idx4);
+        String pump1WaterMinutes = (idx4 < 0)
+          ? "0"
+          : ((idx5 < 0) ? line.substring(idx4 + 1) : line.substring(idx4 + 1, idx5));
+        String pump2WaterMinutes = (idx5 < 0) ? "0" : line.substring(idx5 + 1);
   
         if (!first) json += ",";
         first = false;
   
-        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum + ",\"soil\":" + soil + "}";
+        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum + ",\"soil\":" + soil;
+        json += ",\"pump1WaterMinutes\":" + pump1WaterMinutes;
+        json += ",\"pump2WaterMinutes\":" + pump2WaterMinutes + "}";
       }
       json += "]";
       file.close();
