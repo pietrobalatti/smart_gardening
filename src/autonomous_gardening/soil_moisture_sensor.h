@@ -4,8 +4,8 @@
 // Soil moisture sensor configuration
 #define SOIL_MOISTURE_PIN A0
 
-const int SoilAirValue = 803;
-const int SoilWaterValue = 327;
+const int SoilAirValue = 788;
+const int SoilWaterValue = 315;
 
 extern int soilMoistureRaw;
 extern float soilMoisture;

@@ -9,10 +9,10 @@
 // Set pumps GPIOs
 const int pump2Pin = 15; // D8
 const int pump1Pin = 13; // D7
-const unsigned int pump1DefaultWateringMinutes = 3;
-const unsigned int pump2DefaultWateringMinutes = 5;
+const unsigned int pump1DefaultWateringMinutes = 8;
+const unsigned int pump2DefaultWateringMinutes = 3;
 const unsigned int minWateringMinutes = 1;
-const unsigned int maxWateringMinutes = 60;
+const unsigned int maxWateringMinutes = 15;
 
 // Stores pumps state and tickers for timed operations
 String pump1State;
