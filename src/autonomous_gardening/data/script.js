@@ -82,6 +82,9 @@ setInterval(function () {
 }, 10000);
 
 const HISTORY_WINDOW_HOURS = 24;
+let currentHistory = [];
+let currentTankStatus = null;
+let chartInstances = [];
 
 function shouldUseDemoHistory() {
   return new URLSearchParams(window.location.search).has("demo");
@@ -112,6 +115,23 @@ function buildDemoHistory() {
   }
 
   return data;
+}
+
+function buildDemoTankStatus() {
+  const nowHour = Math.floor(Date.now() / 3600000) * 3600;
+
+  return {
+    pump1: {
+      used: 24,
+      capacity: 90,
+      lastFilled: nowHour - 12 * 3600
+    },
+    pump2: {
+      used: 6,
+      capacity: 30,
+      lastFilled: nowHour - 8 * 3600
+    }
+  };
 }
 
 function normalizeHistory(data) {
@@ -198,21 +218,138 @@ function sharedChartOptions(scales) {
   };
 }
 
-function drawHistoryCharts(data) {
+function defaultTankStatus() {
+  return {
+    pump1: {
+      used: 0,
+      capacity: 90,
+      lastFilled: 0
+    },
+    pump2: {
+      used: 0,
+      capacity: 30,
+      lastFilled: 0
+    }
+  };
+}
+
+function formatWaterMinutes(value) {
+  const rounded = Math.round(Number(value || 0) * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function updateTankDisplay(tankStatus) {
+  const pump1Status = tankStatus.pump1 || defaultTankStatus().pump1;
+  const pump2Status = tankStatus.pump2 || defaultTankStatus().pump2;
+
+  document.getElementById("pump1TankUsage").textContent =
+    `${formatWaterMinutes(pump1Status.used)}/${formatWaterMinutes(pump1Status.capacity)} min`;
+  document.getElementById("pump2TankUsage").textContent =
+    `${formatWaterMinutes(pump2Status.used)}/${formatWaterMinutes(pump2Status.capacity)} min`;
+}
+
+function buildTankFillMarkers(data, lastFilled, markerValue) {
+  const markers = data.map(() => null);
+  const filledAt = Number(lastFilled || 0);
+
+  if (!Number.isFinite(filledAt) || filledAt <= 0 || data.length === 0) return markers;
+
+  const firstTimestamp = data[0].t;
+  const lastTimestamp = data[data.length - 1].t;
+  if (filledAt < firstTimestamp - 1800 || filledAt > lastTimestamp + 3600) return markers;
+
+  let closestIndex = 0;
+  let closestDelta = Math.abs(data[0].t - filledAt);
+
+  data.forEach((dp, index) => {
+    const delta = Math.abs(dp.t - filledAt);
+    if (delta < closestDelta) {
+      closestIndex = index;
+      closestDelta = delta;
+    }
+  });
+
+  markers[closestIndex] = markerValue;
+  return markers;
+}
+
+function refillMarkerDataset(label, markers, yAxisID) {
+  return {
+    type: "line",
+    label: label,
+    data: markers,
+    borderColor: "#111827",
+    backgroundColor: "#111827",
+    yAxisID: yAxisID,
+    showLine: false,
+    pointRadius: 5,
+    pointHoverRadius: 7,
+    pointStyle: "triangle",
+    pointRotation: 180
+  };
+}
+
+function hasVisibleMarker(markers) {
+  return markers.some(value => value !== null);
+}
+
+function drawHistoryCharts(data, tankStatus) {
+  chartInstances.forEach(chart => chart.destroy());
+  chartInstances = [];
+
   const labels = buildHistoryLabels(data);
   const temps = data.map(dp => dp.temp);
   const hums = data.map(dp => dp.hum);
   const soils = data.map(dp => dp.soil);
   const pump1WaterMinutes = data.map(dp => dp.pump1WaterMinutes);
   const pump2WaterMinutes = data.map(dp => dp.pump2WaterMinutes);
+  const pump1Status = (tankStatus && tankStatus.pump1) || defaultTankStatus().pump1;
+  const pump2Status = (tankStatus && tankStatus.pump2) || defaultTankStatus().pump2;
 
   const tempRange = axisRange(temps, 5, 5);
   const airPercentRange = axisRange(hums, 5, 5, 0, 100);
   const soilRange = axisRange(soils, 5, 5, 0, 100);
   const pump1WaterRange = axisRange(pump1WaterMinutes, 5, 5, 0);
   const pump2WaterRange = axisRange(pump2WaterMinutes, 5, 5, 0);
+  const pump1FillMarkers = buildTankFillMarkers(data, pump1Status.lastFilled, pump1WaterRange.max);
+  const pump2FillMarkers = buildTankFillMarkers(data, pump2Status.lastFilled, pump2WaterRange.max);
+  const pump1Datasets = [
+    {
+      type: "line",
+      label: "🌱 Soil moisture (%)",
+      data: soils,
+      borderColor: "green",
+      backgroundColor: "rgba(0, 128, 0, 0.1)",
+      yAxisID: 'ySoil',
+      tension: 0.3
+    },
+    {
+      type: "bar",
+      label: "Pump 1 watering (min/hour)",
+      data: pump1WaterMinutes,
+      borderColor: "#d97706",
+      backgroundColor: "rgba(217, 119, 6, 0.45)",
+      yAxisID: 'yWater'
+    }
+  ];
+  const pump2Datasets = [
+    {
+      label: "Pump 2 watering (min/hour)",
+      data: pump2WaterMinutes,
+      borderColor: "#0891b2",
+      backgroundColor: "rgba(8, 145, 178, 0.45)"
+    }
+  ];
 
-  new Chart(document.getElementById("environmentChart").getContext("2d"), {
+  if (hasVisibleMarker(pump1FillMarkers)) {
+    pump1Datasets.push(refillMarkerDataset("Pump 1 tank filled", pump1FillMarkers, 'yWater'));
+  }
+
+  if (hasVisibleMarker(pump2FillMarkers)) {
+    pump2Datasets.push(refillMarkerDataset("Pump 2 tank filled", pump2FillMarkers, 'y'));
+  }
+
+  chartInstances.push(new Chart(document.getElementById("environmentChart").getContext("2d"), {
     type: "line",
     data: {
       labels: labels,
@@ -268,30 +405,12 @@ function drawHistoryCharts(data) {
         ticks: { stepSize: 1 }
       }
     })
-  });
+  }));
 
-  new Chart(document.getElementById("pump1Chart").getContext("2d"), {
+  chartInstances.push(new Chart(document.getElementById("pump1Chart").getContext("2d"), {
     data: {
       labels: labels,
-      datasets: [
-        {
-          type: "line",
-          label: "🌱 Soil moisture (%)",
-          data: soils,
-          borderColor: "green",
-          backgroundColor: "rgba(0, 128, 0, 0.1)",
-          yAxisID: 'ySoil',
-          tension: 0.3
-        },
-        {
-          type: "bar",
-          label: "Pump 1 watering (min/hour)",
-          data: pump1WaterMinutes,
-          borderColor: "#d97706",
-          backgroundColor: "rgba(217, 119, 6, 0.45)",
-          yAxisID: 'yWater'
-        }
-      ]
+      datasets: pump1Datasets
     },
     options: sharedChartOptions({
       x: {
@@ -326,20 +445,13 @@ function drawHistoryCharts(data) {
         ticks: { stepSize: 1 }
       }
     })
-  });
+  }));
 
-  new Chart(document.getElementById("pump2Chart").getContext("2d"), {
+  chartInstances.push(new Chart(document.getElementById("pump2Chart").getContext("2d"), {
     type: "bar",
     data: {
       labels: labels,
-      datasets: [
-        {
-          label: "Pump 2 watering (min/hour)",
-          data: pump2WaterMinutes,
-          borderColor: "#0891b2",
-          backgroundColor: "rgba(8, 145, 178, 0.45)"
-        }
-      ]
+      datasets: pump2Datasets
     },
     options: sharedChartOptions({
       x: {
@@ -360,7 +472,7 @@ function drawHistoryCharts(data) {
         ticks: { stepSize: 1 }
       }
     })
-  });
+  }));
 }
 
 function loadHistory() {
@@ -375,14 +487,72 @@ function loadHistory() {
     });
 }
 
-// Draw charts
-loadHistory()
-  .then(data => {
-    const history = latestHistoryWindow(normalizeHistory(data));
-    if (history.length === 0) return;
+function loadTankStatus() {
+  if (shouldUseDemoHistory()) {
+    return Promise.resolve(buildDemoTankStatus());
+  }
 
-    drawHistoryCharts(history);
-  })
+  return fetch("/tankstatus.json")
+    .then(response => {
+      if (!response.ok) return defaultTankStatus();
+      return response.json();
+    })
+    .catch(() => defaultTankStatus());
+}
+
+function refreshHistoryDashboard() {
+  return Promise.all([loadHistory(), loadTankStatus()])
+    .then(([historyData, tankStatus]) => {
+      const history = latestHistoryWindow(normalizeHistory(historyData));
+      currentHistory = history;
+      currentTankStatus = tankStatus;
+      updateTankDisplay(tankStatus);
+
+      if (history.length === 0) return;
+      drawHistoryCharts(history, tankStatus);
+    });
+}
+
+function resetTank(pumpNumber) {
+  const buttonId = pumpNumber === 1 ? "resetPump1Tank" : "resetPump2Tank";
+  const endpoint = pumpNumber === 1 ? "/resetpump1tank" : "/resetpump2tank";
+  const button = document.getElementById(buttonId);
+
+  button.disabled = true;
+
+  if (shouldUseDemoHistory()) {
+    const tankStatus = currentTankStatus || buildDemoTankStatus();
+    const pumpKey = pumpNumber === 1 ? "pump1" : "pump2";
+    tankStatus[pumpKey].used = 0;
+    tankStatus[pumpKey].lastFilled = Math.floor(Date.now() / 1000);
+    currentTankStatus = tankStatus;
+    updateTankDisplay(tankStatus);
+    if (currentHistory.length > 0) drawHistoryCharts(currentHistory, tankStatus);
+    button.disabled = false;
+    return;
+  }
+
+  fetch(endpoint, { method: "POST" })
+    .then(response => {
+      if (!response.ok) throw new Error("Failed to reset tank");
+      return response.json();
+    })
+    .then(tankStatus => {
+      currentTankStatus = tankStatus;
+      updateTankDisplay(tankStatus);
+      if (currentHistory.length > 0) drawHistoryCharts(currentHistory, tankStatus);
+    })
+    .catch(() => {})
+    .finally(() => {
+      button.disabled = false;
+    });
+}
+
+document.getElementById("resetPump1Tank").addEventListener("click", () => resetTank(1));
+document.getElementById("resetPump2Tank").addEventListener("click", () => resetTank(2));
+
+// Draw charts
+refreshHistoryDashboard()
   .catch(() => {});
 
 setInterval(() => {

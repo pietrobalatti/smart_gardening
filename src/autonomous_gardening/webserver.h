@@ -13,6 +13,8 @@ const unsigned int pump1DefaultWateringMinutes = 8;
 const unsigned int pump2DefaultWateringMinutes = 3;
 const unsigned int minWateringMinutes = 1;
 const unsigned int maxWateringMinutes = 15;
+const float pump1TankCapacityMinutes = 90.0;
+const float pump2TankCapacityMinutes = 30.0;
 
 // Stores pumps state and tickers for timed operations
 String pump1State;
@@ -39,6 +41,13 @@ struct WateringBucket {
 
 WateringBucket wateringBuckets[MAX_HISTORY];
 int wateringBucketCount = 0;
+File historyRestoreFile;
+bool historyRestoreOk = false;
+bool historyRestoreFinished = false;
+float pump1TankUsedMinutes = 0.0;
+float pump2TankUsedMinutes = 0.0;
+time_t pump1TankLastFilled = 0;
+time_t pump2TankLastFilled = 0;
 
 
 String getTemperature() // function to get temperature from dht22
@@ -131,6 +140,94 @@ unsigned long wateringDurationMs(unsigned int minutes)
   return (unsigned long)minutes * 60UL * 1000UL;
 }
 
+void saveTankState()
+{
+  File file = LittleFS.open("/tank_state.txt", "w");
+  if (!file) return;
+
+  file.printf("%.2f,%.2f,%lu,%lu\n",
+    pump1TankUsedMinutes,
+    pump2TankUsedMinutes,
+    pump1TankLastFilled,
+    pump2TankLastFilled
+  );
+  file.close();
+}
+
+void loadTankState()
+{
+  File file = LittleFS.open("/tank_state.txt", "r");
+  if (!file) return;
+
+  String line = file.readStringUntil('\n');
+  line.trim();
+  file.close();
+  if (line.length() == 0) return;
+
+  int idx1 = line.indexOf(',');
+  int idx2 = line.indexOf(',', idx1 + 1);
+  int idx3 = line.indexOf(',', idx2 + 1);
+  if (idx1 < 0 || idx2 < 0 || idx3 < 0) return;
+
+  pump1TankUsedMinutes = line.substring(0, idx1).toFloat();
+  pump2TankUsedMinutes = line.substring(idx1 + 1, idx2).toFloat();
+  pump1TankLastFilled = (time_t)line.substring(idx2 + 1, idx3).toInt();
+  pump2TankLastFilled = (time_t)line.substring(idx3 + 1).toInt();
+}
+
+void addTankUsage(unsigned int pumpNumber, float minutes)
+{
+  if (minutes <= 0.0) return;
+
+  if (pumpNumber == 1) {
+    pump1TankUsedMinutes += minutes;
+    if (pump1TankUsedMinutes > pump1TankCapacityMinutes) {
+      pump1TankUsedMinutes = pump1TankCapacityMinutes;
+    }
+  } else if (pumpNumber == 2) {
+    pump2TankUsedMinutes += minutes;
+    if (pump2TankUsedMinutes > pump2TankCapacityMinutes) {
+      pump2TankUsedMinutes = pump2TankCapacityMinutes;
+    }
+  }
+
+  saveTankState();
+}
+
+void resetTank(unsigned int pumpNumber)
+{
+  time_t now = time(nullptr);
+
+  if (pumpNumber == 1) {
+    pump1TankUsedMinutes = 0.0;
+    pump1TankLastFilled = now;
+    if (pump1StartedAt > 0) pump1StartedAt = now;
+  } else if (pumpNumber == 2) {
+    pump2TankUsedMinutes = 0.0;
+    pump2TankLastFilled = now;
+    if (pump2StartedAt > 0) pump2StartedAt = now;
+  }
+
+  saveTankState();
+}
+
+String getTankStatusJson()
+{
+  String json = "{";
+  json += "\"pump1\":{";
+  json += "\"used\":" + String(pump1TankUsedMinutes, 2) + ",";
+  json += "\"capacity\":" + String(pump1TankCapacityMinutes, 0) + ",";
+  json += "\"lastFilled\":" + String((unsigned long)pump1TankLastFilled);
+  json += "},";
+  json += "\"pump2\":{";
+  json += "\"used\":" + String(pump2TankUsedMinutes, 2) + ",";
+  json += "\"capacity\":" + String(pump2TankCapacityMinutes, 0) + ",";
+  json += "\"lastFilled\":" + String((unsigned long)pump2TankLastFilled);
+  json += "}";
+  json += "}";
+  return json;
+}
+
 time_t getHourStart(time_t timestamp)
 {
   if (timestamp <= 0) return 0;
@@ -194,6 +291,8 @@ void addWateringMinutes(time_t hourStart, unsigned int pumpNumber, float minutes
 void addPumpWateringDuration(unsigned int pumpNumber, time_t startTime, time_t endTime)
 {
   if (startTime <= 0 || endTime <= startTime) return;
+
+  addTankUsage(pumpNumber, (float)(endTime - startTime) / 60.0);
 
   time_t cursor = startTime;
   while (cursor < endTime) {
@@ -392,6 +491,7 @@ void initialize_webserver(AsyncWebServer& server)
     {
       Serial.println("An Error has occurred while mounting LittleFS");
     }
+    loadTankState();
     
 
     // ✅ Serve all static files from /data
@@ -489,6 +589,20 @@ void initialize_webserver(AsyncWebServer& server)
       request->send(200, "application/json", getSensorReadingsJson());
     });
 
+    server.on("/tankstatus.json", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "application/json", getTankStatusJson());
+    });
+
+    server.on("/resetpump1tank", HTTP_POST, [](AsyncWebServerRequest *request){
+      resetTank(1);
+      request->send(200, "application/json", getTankStatusJson());
+    });
+
+    server.on("/resetpump2tank", HTTP_POST, [](AsyncWebServerRequest *request){
+      resetTank(2);
+      request->send(200, "application/json", getTankStatusJson());
+    });
+
     server.on("/history.json", HTTP_GET, [](AsyncWebServerRequest *request){
       File file = LittleFS.open("/history.txt", "r");
       if (!file) {
@@ -548,6 +662,74 @@ void initialize_webserver(AsyncWebServer& server)
     
       request->send(200, "text/plain", content);
     });
+
+    server.on("/backuphistory", HTTP_GET, [](AsyncWebServerRequest *request){
+      if (!LittleFS.exists("/history.txt")) {
+        request->send(404, "text/plain", "No history.txt found.");
+        return;
+      }
+
+      AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/history.txt", "text/plain", true);
+      response->addHeader("Content-Disposition", "attachment; filename=\"history.txt\"");
+      request->send(response);
+    });
+
+    server.on(
+      "/restorehistory",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request){
+        bool restored = historyRestoreFinished && historyRestoreOk;
+        historyRestoreFinished = false;
+        historyRestoreOk = false;
+
+        if (restored) {
+          request->redirect("/");
+          return;
+        }
+
+        request->send(500, "text/plain", "Failed to restore history.txt");
+      },
+      [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+        (void)request;
+        (void)filename;
+
+        if (index == 0) {
+          historyRestoreFinished = false;
+          historyRestoreOk = true;
+          if (historyRestoreFile) historyRestoreFile.close();
+          if (LittleFS.exists("/history-restore.tmp")) LittleFS.remove("/history-restore.tmp");
+          historyRestoreFile = LittleFS.open("/history-restore.tmp", "w");
+          if (!historyRestoreFile) historyRestoreOk = false;
+        }
+
+        if (historyRestoreOk && len > 0) {
+          size_t written = historyRestoreFile.write(data, len);
+          if (written != len) historyRestoreOk = false;
+        }
+
+        if (final) {
+          if (historyRestoreFile) historyRestoreFile.close();
+
+          bool replaced = false;
+          if (historyRestoreOk) {
+            bool removedOldHistory = true;
+            if (LittleFS.exists("/history.txt")) {
+              removedOldHistory = LittleFS.remove("/history.txt");
+            }
+            replaced = removedOldHistory && LittleFS.rename("/history-restore.tmp", "/history.txt");
+          }
+
+          if (replaced) {
+            loadSensorHistory();
+          } else if (LittleFS.exists("/history-restore.tmp")) {
+            LittleFS.remove("/history-restore.tmp");
+          }
+
+          historyRestoreOk = replaced;
+          historyRestoreFinished = true;
+        }
+      }
+    );
 
     // Delete history file command
     server.on("/deletehistory", HTTP_GET, [](AsyncWebServerRequest *request){

@@ -85,15 +85,31 @@
   </section>
   <section class="chart-section">
     <h3>Pump 1 (west)</h3>
+    <div class="tank-row">
+      <span>Tank used: <strong id="pump1TankUsage">loading...</strong></span>
+      <button id="resetPump1Tank" class="button buttonTankReset" type="button">Reset</button>
+    </div>
     <div class="chart-frame">
       <canvas id="pump1Chart"></canvas>
     </div>
   </section>
   <section class="chart-section">
     <h3>Pump 2 (east)</h3>
+    <div class="tank-row">
+      <span>Tank used: <strong id="pump2TankUsage">loading...</strong></span>
+      <button id="resetPump2Tank" class="button buttonTankReset" type="button">Reset</button>
+    </div>
     <div class="chart-frame">
       <canvas id="pump2Chart"></canvas>
     </div>
+  </section>
+  <section class="history-actions">
+    <a href="/backuphistory"><button class="button buttonBackup" type="button">Backup history</button></a>
+    <form class="restore-form" action="/restorehistory" method="post" enctype="multipart/form-data">
+      <label class="restore-label" for="historyRestoreFile">Restore history from file</label>
+      <input id="historyRestoreFile" class="restore-input" type="file" name="history" accept=".txt,text/plain" required>
+      <button class="button buttonRestore" type="submit">Restore history</button>
+    </form>
   </section>
 
   <!-- System status -->
