@@ -9,11 +9,18 @@ function fetchAndUpdate(endpoint, elementId) {
   xhttp.send();
 }
 
+function setTextIfPresent(elementId, value) {
+  const element = document.getElementById(elementId);
+  if (element) element.innerHTML = value;
+}
+
 function updateSensorDisplay(data) {
-  document.getElementById("temperature").innerHTML = data.temperature;
-  document.getElementById("humidity").innerHTML = data.humidity;
-  document.getElementById("soilMoisture").innerHTML = data.soilMoisture;
-  document.getElementById("soilMoistureRaw").innerHTML = data.soilMoistureRaw;
+  setTextIfPresent("temperature", data.temperature);
+  setTextIfPresent("humidity", data.humidity);
+  setTextIfPresent("pump1SoilMoisture", data.pump1SoilMoisture);
+  setTextIfPresent("pump1SoilMoistureRaw", data.pump1SoilMoistureRaw);
+  setTextIfPresent("pump2SoilMoisture", data.pump2SoilMoisture);
+  setTextIfPresent("pump2SoilMoistureRaw", data.pump2SoilMoistureRaw);
 }
 
 function fetchSensorDisplay() {
@@ -74,10 +81,7 @@ function refreshSensors() {
 document.getElementById("refreshSensors").addEventListener("click", refreshSensors);
 
 setInterval(function () {
-  fetchAndUpdate("/temperature", "temperature");
-  fetchAndUpdate("/humidity", "humidity");
-  fetchAndUpdate("/soilmoisture", "soilMoisture");
-  fetchAndUpdate("/soilmoistureraw", "soilMoistureRaw");
+  fetchSensorDisplay().catch(() => {});
   fetchAndUpdate("/rssi", "rssi");
 }, 10000);
 
@@ -102,13 +106,15 @@ function buildDemoHistory() {
     const index = 29 - hoursAgo;
     const pump1WaterMinutes = (index === 8 || index === 16 || index === 24) ? 8 : 0;
     const pump2WaterMinutes = (index === 6 || index === 20) ? 3 : 0;
-    const wateringBoost = pump1WaterMinutes > 0 ? 9 : 0;
+    const pump1WateringBoost = pump1WaterMinutes > 0 ? 9 : 0;
+    const pump2WateringBoost = pump2WaterMinutes > 0 ? 7 : 0;
 
     data.push({
       t: nowHour - hoursAgo * 3600,
       temp: oneDecimal(23 + Math.sin(index / 4) * 4 + Math.max(0, index - 18) * 0.12),
       hum: oneDecimal(62 - Math.sin(index / 5) * 9),
-      soil: oneDecimal(48 - index * 0.22 + Math.sin(index / 3) * 4 + wateringBoost),
+      soil1: oneDecimal(48 - index * 0.22 + Math.sin(index / 3) * 4 + pump1WateringBoost),
+      soil2: oneDecimal(42 - index * 0.18 + Math.sin(index / 4) * 3 + pump2WateringBoost),
       pump1WaterMinutes: pump1WaterMinutes,
       pump2WaterMinutes: pump2WaterMinutes
     });
@@ -136,14 +142,20 @@ function buildDemoTankStatus() {
 
 function normalizeHistory(data) {
   return data
-    .map(dp => ({
-      t: Number(dp.t),
-      temp: Number(dp.temp),
-      hum: Number(dp.hum),
-      soil: Number(dp.soil),
-      pump1WaterMinutes: Number(dp.pump1WaterMinutes || 0),
-      pump2WaterMinutes: Number(dp.pump2WaterMinutes || 0)
-    }))
+    .map(dp => {
+      const soil1 = (dp.soil1 !== undefined) ? dp.soil1 : dp.soil;
+      const soil2 = (dp.soil2 !== undefined) ? dp.soil2 : soil1;
+
+      return {
+        t: Number(dp.t),
+        temp: Number(dp.temp),
+        hum: Number(dp.hum),
+        soil1: Number(soil1),
+        soil2: Number(soil2),
+        pump1WaterMinutes: Number(dp.pump1WaterMinutes || 0),
+        pump2WaterMinutes: Number(dp.pump2WaterMinutes || 0)
+      };
+    })
     .filter(dp => Number.isFinite(dp.t));
 }
 
@@ -300,7 +312,8 @@ function drawHistoryCharts(data, tankStatus) {
   const labels = buildHistoryLabels(data);
   const temps = data.map(dp => dp.temp);
   const hums = data.map(dp => dp.hum);
-  const soils = data.map(dp => dp.soil);
+  const pump1Soils = data.map(dp => dp.soil1);
+  const pump2Soils = data.map(dp => dp.soil2);
   const pump1WaterMinutes = data.map(dp => dp.pump1WaterMinutes);
   const pump2WaterMinutes = data.map(dp => dp.pump2WaterMinutes);
   const pump1Status = (tankStatus && tankStatus.pump1) || defaultTankStatus().pump1;
@@ -308,7 +321,8 @@ function drawHistoryCharts(data, tankStatus) {
 
   const tempRange = axisRange(temps, 5, 5);
   const airPercentRange = axisRange(hums, 5, 5, 0, 100);
-  const soilRange = axisRange(soils, 5, 5, 0, 100);
+  const pump1SoilRange = axisRange(pump1Soils, 5, 5, 0, 100);
+  const pump2SoilRange = axisRange(pump2Soils, 5, 5, 0, 100);
   const pump1WaterRange = axisRange(pump1WaterMinutes, 5, 5, 0);
   const pump2WaterRange = axisRange(pump2WaterMinutes, 5, 5, 0);
   const pump1FillMarkers = buildTankFillMarkers(data, pump1Status.lastFilled, pump1WaterRange.max);
@@ -317,7 +331,7 @@ function drawHistoryCharts(data, tankStatus) {
     {
       type: "line",
       label: "🌱 Soil moisture (%)",
-      data: soils,
+      data: pump1Soils,
       borderColor: "green",
       backgroundColor: "rgba(0, 128, 0, 0.1)",
       yAxisID: 'ySoil',
@@ -334,10 +348,21 @@ function drawHistoryCharts(data, tankStatus) {
   ];
   const pump2Datasets = [
     {
+      type: "line",
+      label: "🌱 Soil moisture (%)",
+      data: pump2Soils,
+      borderColor: "green",
+      backgroundColor: "rgba(0, 128, 0, 0.1)",
+      yAxisID: 'ySoil',
+      tension: 0.3
+    },
+    {
+      type: "bar",
       label: "Pump 2 watering (min/hour)",
       data: pump2WaterMinutes,
       borderColor: "#0891b2",
-      backgroundColor: "rgba(8, 145, 178, 0.45)"
+      backgroundColor: "rgba(8, 145, 178, 0.45)",
+      yAxisID: 'yWater'
     }
   ];
 
@@ -346,7 +371,7 @@ function drawHistoryCharts(data, tankStatus) {
   }
 
   if (hasVisibleMarker(pump2FillMarkers)) {
-    pump2Datasets.push(refillMarkerDataset("Pump 2 tank filled", pump2FillMarkers, 'y'));
+    pump2Datasets.push(refillMarkerDataset("Pump 2 tank filled", pump2FillMarkers, 'yWater'));
   }
 
   chartInstances.push(new Chart(document.getElementById("environmentChart").getContext("2d"), {
@@ -426,8 +451,8 @@ function drawHistoryCharts(data, tankStatus) {
           display: true,
           text: "Soil moisture (%)"
         },
-        min: soilRange.min,
-        max: soilRange.max,
+        min: pump1SoilRange.min,
+        max: pump1SoilRange.max,
         ticks: { stepSize: 1 }
       },
       yWater: {
@@ -448,7 +473,6 @@ function drawHistoryCharts(data, tankStatus) {
   }));
 
   chartInstances.push(new Chart(document.getElementById("pump2Chart").getContext("2d"), {
-    type: "bar",
     data: {
       labels: labels,
       datasets: pump2Datasets
@@ -460,12 +484,26 @@ function drawHistoryCharts(data, tankStatus) {
           text: "Time"
         }
       },
-      y: {
+      ySoil: {
         type: 'linear',
         position: 'left',
         title: {
           display: true,
+          text: "Soil moisture (%)"
+        },
+        min: pump2SoilRange.min,
+        max: pump2SoilRange.max,
+        ticks: { stepSize: 1 }
+      },
+      yWater: {
+        type: 'linear',
+        position: 'right',
+        title: {
+          display: true,
           text: "Watering (min/hour)"
+        },
+        grid: {
+          drawOnChartArea: false
         },
         min: pump2WaterRange.min,
         max: pump2WaterRange.max,

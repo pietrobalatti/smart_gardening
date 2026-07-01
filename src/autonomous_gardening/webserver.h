@@ -62,14 +62,34 @@ String getHumidity()  //  // function to get humifdity from dht22
   return String(humidity);
 }
 
+String getPump1SoilMoisture()
+{
+  return String(soilMoisture1, 1);
+}
+
+String getPump2SoilMoisture()
+{
+  return String(soilMoisture2, 1);
+}
+
+String getPump1SoilMoistureRaw()
+{
+  return String(soilMoisture1Raw);
+}
+
+String getPump2SoilMoistureRaw()
+{
+  return String(soilMoisture2Raw);
+}
+
 String getSoilMoisture()
 {
-  return String(soilMoisture, 1);
+  return getPump1SoilMoisture();
 }
 
 String getSoilMoistureRaw()
 {
-  return String(soilMoistureRaw);
+  return getPump1SoilMoistureRaw();
 }
 
 String getSensorReadingsJson()
@@ -77,8 +97,12 @@ String getSensorReadingsJson()
   String json = "{";
   json += "\"temperature\":" + getTemperature() + ",";
   json += "\"humidity\":" + getHumidity() + ",";
-  json += "\"soilMoisture\":" + getSoilMoisture() + ",";
-  json += "\"soilMoistureRaw\":" + getSoilMoistureRaw() + ",";
+  json += "\"pump1SoilMoisture\":" + getPump1SoilMoisture() + ",";
+  json += "\"pump1SoilMoistureRaw\":" + getPump1SoilMoistureRaw() + ",";
+  json += "\"pump2SoilMoisture\":" + getPump2SoilMoisture() + ",";
+  json += "\"pump2SoilMoistureRaw\":" + getPump2SoilMoistureRaw() + ",";
+  json += "\"soilMoisture\":" + getPump1SoilMoisture() + ",";
+  json += "\"soilMoistureRaw\":" + getPump1SoilMoistureRaw() + ",";
   json += "\"refreshPending\":" + String(sensorRefreshRequested ? "true" : "false") + ",";
   json += "\"lastRefreshMillis\":" + String(sensorLastRefreshMillis);
   json += "}";
@@ -450,6 +474,14 @@ String processor(const String& var)
   }
   else if (var == "HUMIDITY"){
     return getHumidity();
+  }else if (var == "PUMP1SOILMOISTURE"){
+    return getPump1SoilMoisture();
+  }else if (var == "PUMP1SOILMOISTURERAW"){
+    return getPump1SoilMoistureRaw();
+  }else if (var == "PUMP2SOILMOISTURE"){
+    return getPump2SoilMoisture();
+  }else if (var == "PUMP2SOILMOISTURERAW"){
+    return getPump2SoilMoistureRaw();
   }else if (var == "SOILMOISTURE"){
     return getSoilMoisture();
   }else if (var == "SOILMOISTURERAW"){
@@ -576,6 +608,22 @@ void initialize_webserver(AsyncWebServer& server)
       request->send(200, "text/plain", getSoilMoistureRaw());
     });
 
+    server.on("/pump1soilmoisture", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", getPump1SoilMoisture());
+    });
+
+    server.on("/pump1soilmoistureraw", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", getPump1SoilMoistureRaw());
+    });
+
+    server.on("/pump2soilmoisture", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", getPump2SoilMoisture());
+    });
+
+    server.on("/pump2soilmoistureraw", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "text/plain", getPump2SoilMoistureRaw());
+    });
+
     server.on("/refreshsensors", HTTP_GET, [](AsyncWebServerRequest *request){
       requestSensorRefresh();
       String json = "{";
@@ -622,21 +670,33 @@ void initialize_webserver(AsyncWebServer& server)
         int idx3 = line.indexOf(',', idx2 + 1);
         int idx4 = line.indexOf(',', idx3 + 1);
         int idx5 = (idx4 < 0) ? -1 : line.indexOf(',', idx4 + 1);
+        int idx6 = (idx5 < 0) ? -1 : line.indexOf(',', idx5 + 1);
         if (idx1 < 0 || idx2 < 0 || idx3 < 0) continue;
 
         String ts = line.substring(0, idx1);
         String temp = line.substring(idx1 + 1, idx2);
         String hum = line.substring(idx2 + 1, idx3);
-        String soil = (idx4 < 0) ? line.substring(idx3 + 1) : line.substring(idx3 + 1, idx4);
-        String pump1WaterMinutes = (idx4 < 0)
-          ? "0"
-          : ((idx5 < 0) ? line.substring(idx4 + 1) : line.substring(idx4 + 1, idx5));
-        String pump2WaterMinutes = (idx5 < 0) ? "0" : line.substring(idx5 + 1);
+        String soil1 = (idx4 < 0) ? line.substring(idx3 + 1) : line.substring(idx3 + 1, idx4);
+        String soil2 = soil1;
+        String pump1WaterMinutes = "0";
+        String pump2WaterMinutes = "0";
+
+        if (idx6 >= 0) {
+          soil2 = line.substring(idx4 + 1, idx5);
+          pump1WaterMinutes = line.substring(idx5 + 1, idx6);
+          pump2WaterMinutes = line.substring(idx6 + 1);
+        } else if (idx5 >= 0) {
+          pump1WaterMinutes = line.substring(idx4 + 1, idx5);
+          pump2WaterMinutes = line.substring(idx5 + 1);
+        } else if (idx4 >= 0) {
+          pump1WaterMinutes = line.substring(idx4 + 1);
+        }
   
         if (!first) json += ",";
         first = false;
   
-        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum + ",\"soil\":" + soil;
+        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum;
+        json += ",\"soil\":" + soil1 + ",\"soil1\":" + soil1 + ",\"soil2\":" + soil2;
         json += ",\"pump1WaterMinutes\":" + pump1WaterMinutes;
         json += ",\"pump2WaterMinutes\":" + pump2WaterMinutes + "}";
       }

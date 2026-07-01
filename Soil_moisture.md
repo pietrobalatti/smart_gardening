@@ -1,10 +1,13 @@
 # Hardware
 
- |__NodeMCU__|__S/M sensor v2.0.0__|
- |-----------|----------|
- |    Vin    |    Vcc   | --> It needs 3.3V or 5V
- |    A0     |    Auot   |
- |    Gnd    |    Gnd   |
+ |__NodeMCU__|__S/M sensor 1__|__S/M sensor 2__|
+ |-----------|----------------|----------------|
+ |    D0     |      Vcc       |                |
+ |    D1     |                |      Vcc       |
+ |    A0     |      Aout      |      Aout      |
+ |    Gnd    |      Gnd       |      Gnd       |
+
+Only one Vcc pin is set HIGH while reading. If both sensor Aout pins are connected to A0, use a resistor in series with each Aout line to reduce backfeeding between the modules.
  
 # Software
 ```c
