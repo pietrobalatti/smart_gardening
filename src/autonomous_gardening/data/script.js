@@ -90,6 +90,7 @@ let selectedHistoryHours = DEFAULT_HISTORY_WINDOW_HOURS;
 let currentFullHistory = [];
 let currentHistory = [];
 let currentTankStatus = null;
+let currentAutoIrrigationStatus = null;
 let chartInstances = [];
 
 function shouldUseDemoHistory() {
@@ -140,6 +141,89 @@ function buildDemoTankStatus() {
       lastFilled: nowHour - 8 * 3600
     }
   };
+}
+
+function defaultAutoIrrigationStatus() {
+  return {
+    enabled: false,
+    hour: 21,
+    minute: 0,
+    pump1Minutes: 5,
+    pump2Minutes: 2,
+    activePhase: 0,
+    lastRunDay: 0
+  };
+}
+
+function formatClockTime(hour, minute) {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function updateAutoIrrigationDisplay(status) {
+  const autoStatus = status || defaultAutoIrrigationStatus();
+  currentAutoIrrigationStatus = autoStatus;
+
+  const button = document.getElementById("autoIrrigationToggle");
+  const label = document.getElementById("autoIrrigationLabel");
+  const message = document.getElementById("autoIrrigationMessage");
+  if (!button || !label || !message) return;
+
+  button.classList.toggle("active", autoStatus.enabled);
+  button.setAttribute("aria-pressed", autoStatus.enabled ? "true" : "false");
+  label.textContent = autoStatus.enabled ? "ON" : "OFF";
+
+  if (autoStatus.activePhase === 1) {
+    message.textContent = `running pump 1 (${autoStatus.pump1Minutes} min)`;
+  } else if (autoStatus.activePhase === 2) {
+    message.textContent = `running pump 2 (${autoStatus.pump2Minutes} min)`;
+  } else if (autoStatus.enabled) {
+    message.textContent = `enabled - next trigger at ${formatClockTime(autoStatus.hour, autoStatus.minute)}`;
+  } else {
+    message.textContent = "disabled";
+  }
+}
+
+function loadAutoIrrigationStatus() {
+  if (shouldUseDemoHistory()) {
+    return Promise.resolve(currentAutoIrrigationStatus || defaultAutoIrrigationStatus());
+  }
+
+  return fetch("/autoirrigation.json")
+    .then(response => {
+      if (!response.ok) throw new Error("Failed to fetch automatic irrigation status");
+      return response.json();
+    });
+}
+
+function refreshAutoIrrigationStatus() {
+  return loadAutoIrrigationStatus()
+    .then(status => updateAutoIrrigationDisplay(status))
+    .catch(() => {});
+}
+
+function setAutoIrrigationEnabled(enabled) {
+  const button = document.getElementById("autoIrrigationToggle");
+  if (button) button.disabled = true;
+
+  if (shouldUseDemoHistory()) {
+    const status = currentAutoIrrigationStatus || defaultAutoIrrigationStatus();
+    status.enabled = enabled;
+    status.activePhase = 0;
+    updateAutoIrrigationDisplay(status);
+    if (button) button.disabled = false;
+    return;
+  }
+
+  fetch(`/autoirrigation?enabled=${enabled ? 1 : 0}`, { method: "POST" })
+    .then(response => {
+      if (!response.ok) throw new Error("Failed to update automatic irrigation");
+      return response.json();
+    })
+    .then(status => updateAutoIrrigationDisplay(status))
+    .catch(() => {})
+    .finally(() => {
+      if (button) button.disabled = false;
+    });
 }
 
 function normalizeHistory(data) {
@@ -611,14 +695,20 @@ function resetTank(pumpNumber) {
 
 document.getElementById("resetPump1Tank").addEventListener("click", () => resetTank(1));
 document.getElementById("resetPump2Tank").addEventListener("click", () => resetTank(2));
+document.getElementById("autoIrrigationToggle").addEventListener("click", () => {
+  const status = currentAutoIrrigationStatus || defaultAutoIrrigationStatus();
+  setAutoIrrigationEnabled(!status.enabled);
+});
 document.querySelectorAll(".history-window-button").forEach(button => {
   button.addEventListener("click", () => selectHistoryWindow(Number(button.dataset.historyHours)));
 });
 updateHistoryWindowButtons();
+updateAutoIrrigationDisplay(defaultAutoIrrigationStatus());
 
 // Draw charts
 refreshHistoryDashboard()
   .catch(() => {});
+refreshAutoIrrigationStatus();
 
 setInterval(() => {
   const now = new Date();
@@ -654,3 +744,4 @@ function updateStatus() {
 
 setInterval(updateStatus, 10000);  // refresh every 10s
 updateStatus(); // initial call
+setInterval(refreshAutoIrrigationStatus, 10000);

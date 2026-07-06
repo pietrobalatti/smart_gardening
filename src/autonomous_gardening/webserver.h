@@ -15,6 +15,10 @@ const unsigned int minWateringMinutes = 1;
 const unsigned int maxWateringMinutes = 15;
 const float pump1TankCapacityMinutes = 90.0;
 const float pump2TankCapacityMinutes = 30.0;
+const unsigned int automaticIrrigationStartHour = 21;
+const unsigned int automaticIrrigationStartMinute = 0;
+const unsigned int automaticIrrigationPump1Minutes = 5;
+const unsigned int automaticIrrigationPump2Minutes = 2;
 
 // Stores pumps state and tickers for timed operations
 String pump1State;
@@ -48,6 +52,10 @@ float pump1TankUsedMinutes = 0.0;
 float pump2TankUsedMinutes = 0.0;
 time_t pump1TankLastFilled = 0;
 time_t pump2TankLastFilled = 0;
+bool automaticIrrigationEnabled = false;
+time_t lastAutomaticIrrigationDay = 0;
+unsigned int automaticIrrigationPhase = 0; // 0 idle, 1 pump 1, 2 pump 2
+time_t automaticIrrigationPhaseStartedAt = 0;
 
 
 String getTemperature() // function to get temperature from dht22
@@ -199,6 +207,52 @@ void loadTankState()
   pump2TankLastFilled = (time_t)line.substring(idx3 + 1).toInt();
 }
 
+void saveAutomaticIrrigationState()
+{
+  File file = LittleFS.open("/auto_irrigation.txt", "w");
+  if (!file) return;
+
+  file.printf("%u,%lu\n",
+    automaticIrrigationEnabled ? 1 : 0,
+    (unsigned long)lastAutomaticIrrigationDay
+  );
+  file.close();
+}
+
+void loadAutomaticIrrigationState()
+{
+  File file = LittleFS.open("/auto_irrigation.txt", "r");
+  if (!file) return;
+
+  String line = file.readStringUntil('\n');
+  line.trim();
+  file.close();
+  if (line.length() == 0) return;
+
+  int idx1 = line.indexOf(',');
+  if (idx1 < 0) {
+    automaticIrrigationEnabled = (line.toInt() == 1);
+    return;
+  }
+
+  automaticIrrigationEnabled = (line.substring(0, idx1).toInt() == 1);
+  lastAutomaticIrrigationDay = (time_t)line.substring(idx1 + 1).toInt();
+}
+
+String getAutomaticIrrigationStatusJson()
+{
+  String json = "{";
+  json += "\"enabled\":" + String(automaticIrrigationEnabled ? "true" : "false") + ",";
+  json += "\"hour\":" + String(automaticIrrigationStartHour) + ",";
+  json += "\"minute\":" + String(automaticIrrigationStartMinute) + ",";
+  json += "\"pump1Minutes\":" + String(automaticIrrigationPump1Minutes) + ",";
+  json += "\"pump2Minutes\":" + String(automaticIrrigationPump2Minutes) + ",";
+  json += "\"activePhase\":" + String(automaticIrrigationPhase) + ",";
+  json += "\"lastRunDay\":" + String((unsigned long)lastAutomaticIrrigationDay);
+  json += "}";
+  return json;
+}
+
 void addTankUsage(unsigned int pumpNumber, float minutes)
 {
   if (minutes <= 0.0) return;
@@ -263,6 +317,20 @@ time_t getHourStart(time_t timestamp)
   hourInfo.tm_min = 0;
   hourInfo.tm_sec = 0;
   return mktime(&hourInfo);
+}
+
+time_t getDayStart(time_t timestamp)
+{
+  if (timestamp <= 0) return 0;
+
+  struct tm* timeInfo = localtime(&timestamp);
+  if (timeInfo == nullptr) return 0;
+
+  struct tm dayInfo = *timeInfo;
+  dayInfo.tm_hour = 0;
+  dayInfo.tm_min = 0;
+  dayInfo.tm_sec = 0;
+  return mktime(&dayInfo);
 }
 
 int findWateringBucket(time_t hourStart)
@@ -440,6 +508,85 @@ void handlePumpStopRequests()
   }
 }
 
+void stopAutomaticIrrigationSequence()
+{
+  if (automaticIrrigationPhase == 1) {
+    stopPump1();
+  } else if (automaticIrrigationPhase == 2) {
+    stopPump2();
+  }
+
+  automaticIrrigationPhase = 0;
+  automaticIrrigationPhaseStartedAt = 0;
+}
+
+void setAutomaticIrrigationEnabled(bool enabled)
+{
+  automaticIrrigationEnabled = enabled;
+  if (!automaticIrrigationEnabled) {
+    stopAutomaticIrrigationSequence();
+  }
+  saveAutomaticIrrigationState();
+}
+
+void startAutomaticIrrigationSequence(time_t now)
+{
+  time_t todayStart = getDayStart(now);
+  if (todayStart > 0) {
+    lastAutomaticIrrigationDay = todayStart;
+    saveAutomaticIrrigationState();
+  }
+
+  pump1Ticker.detach();
+  pump2Ticker.detach();
+  if (digitalRead(pump2Pin)) {
+    stopPump2At(now);
+  }
+
+  startPump1();
+  automaticIrrigationPhase = 1;
+  automaticIrrigationPhaseStartedAt = now;
+}
+
+void handleAutomaticIrrigation()
+{
+  time_t now = time(nullptr);
+  if (now < 100000) return;
+
+  if (automaticIrrigationPhase == 1) {
+    if ((unsigned long)(now - automaticIrrigationPhaseStartedAt) >= (unsigned long)automaticIrrigationPump1Minutes * 60UL) {
+      stopPump1At(now);
+      pump2Ticker.detach();
+      startPump2();
+      automaticIrrigationPhase = 2;
+      automaticIrrigationPhaseStartedAt = now;
+    }
+    return;
+  }
+
+  if (automaticIrrigationPhase == 2) {
+    if ((unsigned long)(now - automaticIrrigationPhaseStartedAt) >= (unsigned long)automaticIrrigationPump2Minutes * 60UL) {
+      stopPump2At(now);
+      automaticIrrigationPhase = 0;
+      automaticIrrigationPhaseStartedAt = 0;
+      saveAutomaticIrrigationState();
+    }
+    return;
+  }
+
+  if (!automaticIrrigationEnabled) return;
+
+  struct tm* timeInfo = localtime(&now);
+  if (timeInfo == nullptr) return;
+
+  time_t todayStart = getDayStart(now);
+  if (todayStart <= 0 || lastAutomaticIrrigationDay == todayStart) return;
+
+  if (timeInfo->tm_hour == automaticIrrigationStartHour && timeInfo->tm_min == automaticIrrigationStartMinute) {
+    startAutomaticIrrigationSequence(now);
+  }
+}
+
 // Replaces placeholder with LED state value
 String processor(const String& var)
 {
@@ -524,6 +671,7 @@ void initialize_webserver(AsyncWebServer& server)
       Serial.println("An Error has occurred while mounting LittleFS");
     }
     loadTankState();
+    loadAutomaticIrrigationState();
     
 
     // ✅ Serve all static files from /data
@@ -639,6 +787,21 @@ void initialize_webserver(AsyncWebServer& server)
 
     server.on("/tankstatus.json", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(200, "application/json", getTankStatusJson());
+    });
+
+    server.on("/autoirrigation.json", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(200, "application/json", getAutomaticIrrigationStatusJson());
+    });
+
+    server.on("/autoirrigation", HTTP_POST, [](AsyncWebServerRequest *request){
+      bool enabled = automaticIrrigationEnabled;
+      if (request->hasParam("enabled")) {
+        String value = request->getParam("enabled")->value();
+        value.toLowerCase();
+        enabled = (value == "1" || value == "true" || value == "on");
+      }
+      setAutomaticIrrigationEnabled(enabled);
+      request->send(200, "application/json", getAutomaticIrrigationStatusJson());
     });
 
     server.on("/resetpump1tank", HTTP_POST, [](AsyncWebServerRequest *request){

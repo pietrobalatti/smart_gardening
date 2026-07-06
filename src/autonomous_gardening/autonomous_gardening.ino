@@ -144,6 +144,7 @@ void loop() {
   /*           DHT22           */
   /*****************************/
   handlePumpStopRequests();
+  handleAutomaticIrrigation();
   handleRequestedSensorRefresh();
 
   // static unsigned long lastUpdate = 0;
