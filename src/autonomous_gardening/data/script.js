@@ -146,8 +146,8 @@ function buildDemoTankStatus() {
 function defaultAutoIrrigationStatus() {
   return {
     enabled: false,
-    hour: 21,
-    minute: 0,
+    hour: 20,
+    minute: 45,
     pump1Minutes: 5,
     pump2Minutes: 2,
     activePhase: 0,

@@ -15,8 +15,8 @@ const unsigned int minWateringMinutes = 1;
 const unsigned int maxWateringMinutes = 15;
 const float pump1TankCapacityMinutes = 90.0;
 const float pump2TankCapacityMinutes = 30.0;
-const unsigned int automaticIrrigationStartHour = 21;
-const unsigned int automaticIrrigationStartMinute = 0;
+const unsigned int automaticIrrigationStartHour = 20;
+const unsigned int automaticIrrigationStartMinute = 45;
 const unsigned int automaticIrrigationPump1Minutes = 5;
 const unsigned int automaticIrrigationPump2Minutes = 2;
 
@@ -48,6 +48,9 @@ int wateringBucketCount = 0;
 File historyRestoreFile;
 bool historyRestoreOk = false;
 bool historyRestoreFinished = false;
+File tankStateRestoreFile;
+bool tankStateRestoreOk = false;
+bool tankStateRestoreFinished = false;
 float pump1TankUsedMinutes = 0.0;
 float pump2TankUsedMinutes = 0.0;
 time_t pump1TankLastFilled = 0;
@@ -897,6 +900,19 @@ void initialize_webserver(AsyncWebServer& server)
       request->send(response);
     });
 
+    server.on("/backuptankstate", HTTP_GET, [](AsyncWebServerRequest *request){
+      accountPumpRuntimeUntil(time(nullptr));
+      saveTankState();
+      if (!LittleFS.exists("/tank_state.txt")) {
+        request->send(404, "text/plain", "No tank_state.txt found.");
+        return;
+      }
+
+      AsyncWebServerResponse *response = request->beginResponse(LittleFS, "/tank_state.txt", "text/plain", true);
+      response->addHeader("Content-Disposition", "attachment; filename=\"tank_state.txt\"");
+      request->send(response);
+    });
+
     server.on(
       "/restorehistory",
       HTTP_POST,
@@ -950,6 +966,63 @@ void initialize_webserver(AsyncWebServer& server)
 
           historyRestoreOk = replaced;
           historyRestoreFinished = true;
+        }
+      }
+    );
+
+    server.on(
+      "/restoretankstate",
+      HTTP_POST,
+      [](AsyncWebServerRequest *request){
+        bool restored = tankStateRestoreFinished && tankStateRestoreOk;
+        tankStateRestoreFinished = false;
+        tankStateRestoreOk = false;
+
+        if (restored) {
+          request->redirect("/");
+          return;
+        }
+
+        request->send(500, "text/plain", "Failed to restore tank_state.txt");
+      },
+      [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final){
+        (void)request;
+        (void)filename;
+
+        if (index == 0) {
+          tankStateRestoreFinished = false;
+          tankStateRestoreOk = true;
+          if (tankStateRestoreFile) tankStateRestoreFile.close();
+          if (LittleFS.exists("/tank-state-restore.tmp")) LittleFS.remove("/tank-state-restore.tmp");
+          tankStateRestoreFile = LittleFS.open("/tank-state-restore.tmp", "w");
+          if (!tankStateRestoreFile) tankStateRestoreOk = false;
+        }
+
+        if (tankStateRestoreOk && len > 0) {
+          size_t written = tankStateRestoreFile.write(data, len);
+          if (written != len) tankStateRestoreOk = false;
+        }
+
+        if (final) {
+          if (tankStateRestoreFile) tankStateRestoreFile.close();
+
+          bool replaced = false;
+          if (tankStateRestoreOk) {
+            bool removedOldTankState = true;
+            if (LittleFS.exists("/tank_state.txt")) {
+              removedOldTankState = LittleFS.remove("/tank_state.txt");
+            }
+            replaced = removedOldTankState && LittleFS.rename("/tank-state-restore.tmp", "/tank_state.txt");
+          }
+
+          if (replaced) {
+            loadTankState();
+          } else if (LittleFS.exists("/tank-state-restore.tmp")) {
+            LittleFS.remove("/tank-state-restore.tmp");
+          }
+
+          tankStateRestoreOk = replaced;
+          tankStateRestoreFinished = true;
         }
       }
     );
