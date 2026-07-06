@@ -80,7 +80,13 @@
   <p><strong>⏰ System Time:</strong> <span id="systemTime">loading...</span></p>
 
   <!-- History plots -->
-  <h2>📈 Last 24 hours</h2>
+  <h2>📈 Last <span id="historyWindowLabel">24</span> hours</h2>
+  <section class="history-window" aria-label="History time range">
+    <button class="history-window-button active" type="button" data-history-hours="24" aria-pressed="true">24h</button>
+    <button class="history-window-button" type="button" data-history-hours="48" aria-pressed="false">48h</button>
+    <button class="history-window-button" type="button" data-history-hours="72" aria-pressed="false">72h</button>
+    <button class="history-window-button" type="button" data-history-hours="96" aria-pressed="false">96h</button>
+  </section>
   <section class="chart-section">
     <h3>Air</h3>
     <div class="chart-frame">

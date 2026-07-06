@@ -9,8 +9,8 @@
 #define DHTPIN 2        // GPIO2 = D4 on NodeMCU
 #define DHTTYPE DHT22
 
-// Maximum number of history entries
-#define MAX_HISTORY 48
+// Maximum number of hourly history entries
+#define MAX_HISTORY 96
 
 struct DataPoint {
   time_t timestamp;

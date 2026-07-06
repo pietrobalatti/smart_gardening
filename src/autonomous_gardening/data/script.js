@@ -85,7 +85,9 @@ setInterval(function () {
   fetchAndUpdate("/rssi", "rssi");
 }, 10000);
 
-const HISTORY_WINDOW_HOURS = 24;
+const DEFAULT_HISTORY_WINDOW_HOURS = 24;
+let selectedHistoryHours = DEFAULT_HISTORY_WINDOW_HOURS;
+let currentFullHistory = [];
 let currentHistory = [];
 let currentTankStatus = null;
 let chartInstances = [];
@@ -102,10 +104,10 @@ function buildDemoHistory() {
   const nowHour = Math.floor(Date.now() / 3600000) * 3600;
   const data = [];
 
-  for (let hoursAgo = 29; hoursAgo >= 0; hoursAgo--) {
-    const index = 29 - hoursAgo;
-    const pump1WaterMinutes = (index === 8 || index === 16 || index === 24) ? 8 : 0;
-    const pump2WaterMinutes = (index === 6 || index === 20) ? 3 : 0;
+  for (let hoursAgo = 95; hoursAgo >= 0; hoursAgo--) {
+    const index = 95 - hoursAgo;
+    const pump1WaterMinutes = (index % 24 === 8 || index % 24 === 16) ? 8 : 0;
+    const pump2WaterMinutes = (index % 24 === 6 || index % 24 === 20) ? 3 : 0;
     const pump1WateringBoost = pump1WaterMinutes > 0 ? 9 : 0;
     const pump2WateringBoost = pump2WaterMinutes > 0 ? 7 : 0;
 
@@ -159,12 +161,36 @@ function normalizeHistory(data) {
     .filter(dp => Number.isFinite(dp.t));
 }
 
-function latestHistoryWindow(data) {
+function latestHistoryWindow(data, windowHours) {
   if (data.length === 0) return [];
 
   const latestTimestamp = Math.max(...data.map(dp => dp.t));
-  const cutoffTimestamp = latestTimestamp - HISTORY_WINDOW_HOURS * 60 * 60;
+  const cutoffTimestamp = latestTimestamp - windowHours * 60 * 60;
   return data.filter(dp => dp.t >= cutoffTimestamp);
+}
+
+function updateHistoryWindowButtons() {
+  document.querySelectorAll(".history-window-button").forEach(button => {
+    const isActive = Number(button.dataset.historyHours) === selectedHistoryHours;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+
+  const label = document.getElementById("historyWindowLabel");
+  if (label) label.textContent = selectedHistoryHours;
+}
+
+function redrawSelectedHistoryWindow() {
+  currentHistory = latestHistoryWindow(currentFullHistory, selectedHistoryHours);
+  updateHistoryWindowButtons();
+
+  if (currentHistory.length === 0) return;
+  drawHistoryCharts(currentHistory, currentTankStatus);
+}
+
+function selectHistoryWindow(hours) {
+  selectedHistoryHours = hours;
+  redrawSelectedHistoryWindow();
 }
 
 function buildHistoryLabels(data) {
@@ -541,13 +567,10 @@ function loadTankStatus() {
 function refreshHistoryDashboard() {
   return Promise.all([loadHistory(), loadTankStatus()])
     .then(([historyData, tankStatus]) => {
-      const history = latestHistoryWindow(normalizeHistory(historyData));
-      currentHistory = history;
+      currentFullHistory = normalizeHistory(historyData);
       currentTankStatus = tankStatus;
       updateTankDisplay(tankStatus);
-
-      if (history.length === 0) return;
-      drawHistoryCharts(history, tankStatus);
+      redrawSelectedHistoryWindow();
     });
 }
 
@@ -588,6 +611,10 @@ function resetTank(pumpNumber) {
 
 document.getElementById("resetPump1Tank").addEventListener("click", () => resetTank(1));
 document.getElementById("resetPump2Tank").addEventListener("click", () => resetTank(2));
+document.querySelectorAll(".history-window-button").forEach(button => {
+  button.addEventListener("click", () => selectHistoryWindow(Number(button.dataset.historyHours)));
+});
+updateHistoryWindowButtons();
 
 // Draw charts
 refreshHistoryDashboard()
