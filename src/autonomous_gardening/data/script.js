@@ -85,7 +85,8 @@ setInterval(function () {
   fetchAndUpdate("/rssi", "rssi");
 }, 10000);
 
-const DEFAULT_HISTORY_WINDOW_HOURS = 24;
+const DEFAULT_HISTORY_WINDOW_HOURS = 48;
+const DEMO_HISTORY_HOURS = 48;
 let selectedHistoryHours = DEFAULT_HISTORY_WINDOW_HOURS;
 let currentFullHistory = [];
 let currentHistory = [];
@@ -105,8 +106,8 @@ function buildDemoHistory() {
   const nowHour = Math.floor(Date.now() / 3600000) * 3600;
   const data = [];
 
-  for (let hoursAgo = 95; hoursAgo >= 0; hoursAgo--) {
-    const index = 95 - hoursAgo;
+  for (let hoursAgo = DEMO_HISTORY_HOURS - 1; hoursAgo >= 0; hoursAgo--) {
+    const index = (DEMO_HISTORY_HOURS - 1) - hoursAgo;
     const pump1WaterMinutes = (index % 24 === 8 || index % 24 === 16) ? 8 : 0;
     const pump2WaterMinutes = (index % 24 === 6 || index % 24 === 20) ? 3 : 0;
     const pump1WateringBoost = pump1WaterMinutes > 0 ? 9 : 0;
@@ -148,8 +149,8 @@ function defaultAutoIrrigationStatus() {
     enabled: false,
     hour: 20,
     minute: 45,
-    pump1Minutes: 5,
-    pump2Minutes: 2,
+    pump1Minutes: 8,
+    pump2Minutes: 3,
     activePhase: 0,
     lastRunDay: 0
   };

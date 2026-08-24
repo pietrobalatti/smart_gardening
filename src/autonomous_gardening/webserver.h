@@ -17,8 +17,8 @@ const float pump1TankCapacityMinutes = 90.0;
 const float pump2TankCapacityMinutes = 30.0;
 const unsigned int automaticIrrigationStartHour = 20;
 const unsigned int automaticIrrigationStartMinute = 45;
-const unsigned int automaticIrrigationPump1Minutes = 5;
-const unsigned int automaticIrrigationPump2Minutes = 2;
+const unsigned int automaticIrrigationPump1Minutes = 8;
+const unsigned int automaticIrrigationPump2Minutes = 3;
 
 // Stores pumps state and tickers for timed operations
 String pump1State;
@@ -59,6 +59,13 @@ bool automaticIrrigationEnabled = false;
 time_t lastAutomaticIrrigationDay = 0;
 unsigned int automaticIrrigationPhase = 0; // 0 idle, 1 pump 1, 2 pump 2
 time_t automaticIrrigationPhaseStartedAt = 0;
+
+struct TankStateSnapshot {
+  float pump1UsedMinutes;
+  float pump2UsedMinutes;
+  time_t pump1LastFilled;
+  time_t pump2LastFilled;
+};
 
 
 String getTemperature() // function to get temperature from dht22
@@ -175,6 +182,81 @@ unsigned long wateringDurationMs(unsigned int minutes)
   return (unsigned long)minutes * 60UL * 1000UL;
 }
 
+float clampTankUsage(float usedMinutes, float capacityMinutes)
+{
+  if (usedMinutes < 0.0) return 0.0;
+  if (usedMinutes > capacityMinutes) return capacityMinutes;
+  return usedMinutes;
+}
+
+bool parseTankStateLine(String line, TankStateSnapshot& state)
+{
+  line.trim();
+  if (line.length() == 0) return false;
+
+  int idx1 = line.indexOf(',');
+  int idx2 = (idx1 < 0) ? -1 : line.indexOf(',', idx1 + 1);
+  int idx3 = (idx2 < 0) ? -1 : line.indexOf(',', idx2 + 1);
+  if (idx1 < 0 || idx2 < 0 || idx3 < 0) return false;
+
+  String pump1UsedField = line.substring(0, idx1);
+  String pump2UsedField = line.substring(idx1 + 1, idx2);
+  String pump1LastFilledField = line.substring(idx2 + 1, idx3);
+  String pump2LastFilledField = line.substring(idx3 + 1);
+
+  if (!isDecimalField(pump1UsedField)
+      || !isDecimalField(pump2UsedField)
+      || !isUnsignedIntegerField(pump1LastFilledField)
+      || !isUnsignedIntegerField(pump2LastFilledField)) {
+    return false;
+  }
+
+  float pump1Used = pump1UsedField.toFloat();
+  float pump2Used = pump2UsedField.toFloat();
+  if (pump1Used < 0.0 || pump2Used < 0.0) return false;
+
+  state.pump1UsedMinutes = clampTankUsage(pump1Used, pump1TankCapacityMinutes);
+  state.pump2UsedMinutes = clampTankUsage(pump2Used, pump2TankCapacityMinutes);
+  state.pump1LastFilled = (time_t)pump1LastFilledField.toInt();
+  state.pump2LastFilled = (time_t)pump2LastFilledField.toInt();
+  return true;
+}
+
+bool readTankStateFromPath(const char* path, TankStateSnapshot& state)
+{
+  File file = LittleFS.open(path, "r");
+  if (!file) return false;
+
+  while (file.available()) {
+    String line = file.readStringUntil('\n');
+    if (parseTankStateLine(line, state)) {
+      file.close();
+      return true;
+    }
+  }
+
+  file.close();
+  return false;
+}
+
+bool loadTankStateFromPath(const char* path)
+{
+  TankStateSnapshot state;
+  if (!readTankStateFromPath(path, state)) return false;
+
+  pump1TankUsedMinutes = state.pump1UsedMinutes;
+  pump2TankUsedMinutes = state.pump2UsedMinutes;
+  pump1TankLastFilled = state.pump1LastFilled;
+  pump2TankLastFilled = state.pump2LastFilled;
+  return true;
+}
+
+bool isValidTankStateFile(const char* path)
+{
+  TankStateSnapshot state;
+  return readTankStateFromPath(path, state);
+}
+
 void saveTankState()
 {
   File file = LittleFS.open("/tank_state.txt", "w");
@@ -183,31 +265,15 @@ void saveTankState()
   file.printf("%.2f,%.2f,%lu,%lu\n",
     pump1TankUsedMinutes,
     pump2TankUsedMinutes,
-    pump1TankLastFilled,
-    pump2TankLastFilled
+    (unsigned long)pump1TankLastFilled,
+    (unsigned long)pump2TankLastFilled
   );
   file.close();
 }
 
 void loadTankState()
 {
-  File file = LittleFS.open("/tank_state.txt", "r");
-  if (!file) return;
-
-  String line = file.readStringUntil('\n');
-  line.trim();
-  file.close();
-  if (line.length() == 0) return;
-
-  int idx1 = line.indexOf(',');
-  int idx2 = line.indexOf(',', idx1 + 1);
-  int idx3 = line.indexOf(',', idx2 + 1);
-  if (idx1 < 0 || idx2 < 0 || idx3 < 0) return;
-
-  pump1TankUsedMinutes = line.substring(0, idx1).toFloat();
-  pump2TankUsedMinutes = line.substring(idx1 + 1, idx2).toFloat();
-  pump1TankLastFilled = (time_t)line.substring(idx2 + 1, idx3).toInt();
-  pump2TankLastFilled = (time_t)line.substring(idx3 + 1).toInt();
+  loadTankStateFromPath("/tank_state.txt");
 }
 
 void saveAutomaticIrrigationState()
@@ -818,57 +884,7 @@ void initialize_webserver(AsyncWebServer& server)
     });
 
     server.on("/history.json", HTTP_GET, [](AsyncWebServerRequest *request){
-      File file = LittleFS.open("/history.txt", "r");
-      if (!file) {
-        request->send(200, "application/json", "[]");
-        return;
-      }
-  
-      String json = "[";
-      bool first = true;
-      while (file.available()) {
-        String line = file.readStringUntil('\n');
-        line.trim();
-        if (line.length() == 0) continue;
-  
-        int idx1 = line.indexOf(',');
-        int idx2 = line.indexOf(',', idx1 + 1);
-        int idx3 = line.indexOf(',', idx2 + 1);
-        int idx4 = line.indexOf(',', idx3 + 1);
-        int idx5 = (idx4 < 0) ? -1 : line.indexOf(',', idx4 + 1);
-        int idx6 = (idx5 < 0) ? -1 : line.indexOf(',', idx5 + 1);
-        if (idx1 < 0 || idx2 < 0 || idx3 < 0) continue;
-
-        String ts = line.substring(0, idx1);
-        String temp = line.substring(idx1 + 1, idx2);
-        String hum = line.substring(idx2 + 1, idx3);
-        String soil1 = (idx4 < 0) ? line.substring(idx3 + 1) : line.substring(idx3 + 1, idx4);
-        String soil2 = soil1;
-        String pump1WaterMinutes = "0";
-        String pump2WaterMinutes = "0";
-
-        if (idx6 >= 0) {
-          soil2 = line.substring(idx4 + 1, idx5);
-          pump1WaterMinutes = line.substring(idx5 + 1, idx6);
-          pump2WaterMinutes = line.substring(idx6 + 1);
-        } else if (idx5 >= 0) {
-          pump1WaterMinutes = line.substring(idx4 + 1, idx5);
-          pump2WaterMinutes = line.substring(idx5 + 1);
-        } else if (idx4 >= 0) {
-          pump1WaterMinutes = line.substring(idx4 + 1);
-        }
-  
-        if (!first) json += ",";
-        first = false;
-  
-        json += "{\"t\":" + ts + ",\"temp\":" + temp + ",\"hum\":" + hum;
-        json += ",\"soil\":" + soil1 + ",\"soil1\":" + soil1 + ",\"soil2\":" + soil2;
-        json += ",\"pump1WaterMinutes\":" + pump1WaterMinutes;
-        json += ",\"pump2WaterMinutes\":" + pump2WaterMinutes + "}";
-      }
-      json += "]";
-      file.close();
-      request->send(200, "application/json", json);
+      request->send(200, "application/json", getSensorHistoryJson());
     });
 
 
@@ -950,7 +966,7 @@ void initialize_webserver(AsyncWebServer& server)
           if (historyRestoreFile) historyRestoreFile.close();
 
           bool replaced = false;
-          if (historyRestoreOk) {
+          if (historyRestoreOk && countValidHistoryRows("/history-restore.tmp") > 0) {
             bool removedOldHistory = true;
             if (LittleFS.exists("/history.txt")) {
               removedOldHistory = LittleFS.remove("/history.txt");
@@ -960,6 +976,7 @@ void initialize_webserver(AsyncWebServer& server)
 
           if (replaced) {
             loadSensorHistory();
+            saveSensorHistory();
           } else if (LittleFS.exists("/history-restore.tmp")) {
             LittleFS.remove("/history-restore.tmp");
           }
@@ -1007,7 +1024,7 @@ void initialize_webserver(AsyncWebServer& server)
           if (tankStateRestoreFile) tankStateRestoreFile.close();
 
           bool replaced = false;
-          if (tankStateRestoreOk) {
+          if (tankStateRestoreOk && isValidTankStateFile("/tank-state-restore.tmp")) {
             bool removedOldTankState = true;
             if (LittleFS.exists("/tank_state.txt")) {
               removedOldTankState = LittleFS.remove("/tank_state.txt");
@@ -1017,6 +1034,7 @@ void initialize_webserver(AsyncWebServer& server)
 
           if (replaced) {
             loadTankState();
+            saveTankState();
           } else if (LittleFS.exists("/tank-state-restore.tmp")) {
             LittleFS.remove("/tank-state-restore.tmp");
           }
