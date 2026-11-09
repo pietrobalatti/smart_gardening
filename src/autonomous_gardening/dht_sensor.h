@@ -6,7 +6,7 @@
 #include "soil_moisture_sensor.h"
 
 // Sensor configuration
-#define DHTPIN 2        // GPIO2 = D4 on NodeMCU
+#define DHTPIN 0        // GPIO0 = D3 or GPIO2 = D4 on NodeMCU
 #define DHTTYPE DHT22
 
 // Maximum number of hourly history entries

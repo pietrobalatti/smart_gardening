@@ -46,7 +46,8 @@ Install DHT sensor Library (via Library Manager)
 - Open the Arduino IDE.
 - Go to Sketch > Include Library > Manage Libraries...
 - In the Library Manager, type "DHT sensor library" in the search bar.
-- Look for DHT sensor library by Rob Tillaart and click Install.
+- Install **DHT sensor library by Adafruit**, which provides `DHT.h` used by this sketch.
+- When prompted, install all dependencies, including **Adafruit Unified Sensor**.
 
 # Reference
 https://github.com/adafruit/DHT-sensor-library/blob/master/examples/DHTtester/DHTtester.ino

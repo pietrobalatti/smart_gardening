@@ -1,6 +1,6 @@
 #include "DHT.h"
 
-#define DHTPIN 2      // NodeMCU pin connected to DHT22 OUT
+#define DHTPIN 0      // NodeMCU pin connected to DHT22 OUT
 #define DHTTYPE DHT22  // DHT22 sensor type
 
 DHT dht(DHTPIN, DHTTYPE);
