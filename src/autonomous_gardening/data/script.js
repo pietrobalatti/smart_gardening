@@ -146,12 +146,16 @@ function buildDemoTankStatus() {
 
 function defaultAutoIrrigationStatus() {
   return {
-    enabled: false,
+    pump1Enabled: false,
+    pump2Enabled: false,
     hour: 20,
     minute: 45,
     pump1Minutes: 8,
     pump2Minutes: 3,
+    minMinutes: 1,
+    maxMinutes: 15,
     activePhase: 0,
+    activeMinutes: 0,
     lastRunDay: 0
   };
 }
@@ -164,24 +168,40 @@ function updateAutoIrrigationDisplay(status) {
   const autoStatus = status || defaultAutoIrrigationStatus();
   currentAutoIrrigationStatus = autoStatus;
 
-  const button = document.getElementById("autoIrrigationToggle");
-  const label = document.getElementById("autoIrrigationLabel");
-  const message = document.getElementById("autoIrrigationMessage");
-  if (!button || !label || !message) return;
+  [1, 2].forEach(pumpNumber => {
+    const button = document.getElementById(`autoIrrigationToggle${pumpNumber}`);
+    const label = document.getElementById(`autoIrrigationLabel${pumpNumber}`);
+    const message = document.getElementById(`autoIrrigationMessage${pumpNumber}`);
+    if (!button || !label || !message) return;
 
-  button.classList.toggle("active", autoStatus.enabled);
-  button.setAttribute("aria-pressed", autoStatus.enabled ? "true" : "false");
-  label.textContent = autoStatus.enabled ? "ON" : "OFF";
+    const enabled = autoStatus[`pump${pumpNumber}Enabled`];
+    const input = document.getElementById(`autoIrrigationMinutes${pumpNumber}`);
+    if (input) {
+      input.min = autoStatus.minMinutes;
+      input.max = autoStatus.maxMinutes;
+      if (input.dataset.dirty !== "true") input.value = autoStatus[`pump${pumpNumber}Minutes`];
+    }
+    const schedule = document.getElementById(`autoIrrigationSchedule${pumpNumber}`);
+    if (schedule) {
+      const side = pumpNumber === 1 ? "west" : "east";
+      const afterWest = pumpNumber === 2 && autoStatus.pump1Enabled ? " (after west)" : "";
+      schedule.textContent = `Pump ${pumpNumber} (${side}): ${formatClockTime(autoStatus.hour, autoStatus.minute)} for ${autoStatus[`pump${pumpNumber}Minutes`]} min${afterWest}`;
+    }
+    button.classList.toggle("active", enabled);
+    button.setAttribute("aria-pressed", enabled ? "true" : "false");
+    label.textContent = enabled ? "ON" : "OFF";
 
-  if (autoStatus.activePhase === 1) {
-    message.textContent = `running pump 1 (${autoStatus.pump1Minutes} min)`;
-  } else if (autoStatus.activePhase === 2) {
-    message.textContent = `running pump 2 (${autoStatus.pump2Minutes} min)`;
-  } else if (autoStatus.enabled) {
-    message.textContent = `enabled - next trigger at ${formatClockTime(autoStatus.hour, autoStatus.minute)}`;
-  } else {
-    message.textContent = "disabled";
-  }
+    if (enabled && autoStatus.activePhase === pumpNumber) {
+      message.textContent = `running (${autoStatus.activeMinutes} min)`;
+    } else if (enabled && pumpNumber === 2 && autoStatus.activePhase === 1) {
+      message.textContent = "waiting for pump 1 (west) to finish";
+    } else if (enabled) {
+      const afterWest = pumpNumber === 2 && autoStatus.pump1Enabled ? " (after west)" : "";
+      message.textContent = `enabled - daily at ${formatClockTime(autoStatus.hour, autoStatus.minute)}${afterWest}`;
+    } else {
+      message.textContent = "disabled";
+    }
+  });
 }
 
 function loadAutoIrrigationStatus() {
@@ -202,28 +222,70 @@ function refreshAutoIrrigationStatus() {
     .catch(() => {});
 }
 
-function setAutoIrrigationEnabled(enabled) {
-  const button = document.getElementById("autoIrrigationToggle");
-  if (button) button.disabled = true;
+function setAutoIrrigationEnabled(pumpNumber, enabled) {
+  const buttons = [1, 2].map(number => document.getElementById(`autoIrrigationToggle${number}`));
+  buttons.forEach(button => { if (button) button.disabled = true; });
 
   if (shouldUseDemoHistory()) {
     const status = currentAutoIrrigationStatus || defaultAutoIrrigationStatus();
-    status.enabled = enabled;
-    status.activePhase = 0;
+    status[`pump${pumpNumber}Enabled`] = enabled;
+    if (!enabled && status.activePhase === pumpNumber) status.activePhase = 0;
     updateAutoIrrigationDisplay(status);
-    if (button) button.disabled = false;
+    buttons.forEach(button => { if (button) button.disabled = false; });
     return;
   }
 
-  fetch(`/autoirrigation?enabled=${enabled ? 1 : 0}`, { method: "POST" })
+  return fetch(`/autoirrigation?pump=${pumpNumber}&enabled=${enabled ? 1 : 0}`, { method: "POST" })
     .then(response => {
       if (!response.ok) throw new Error("Failed to update automatic irrigation");
       return response.json();
     })
     .then(status => updateAutoIrrigationDisplay(status))
-    .catch(() => {})
+    .catch(() => {
+      document.getElementById(`autoIrrigationMessage${pumpNumber}`).textContent = "failed to update - try again";
+    })
     .finally(() => {
-      if (button) button.disabled = false;
+      buttons.forEach(button => { if (button) button.disabled = false; });
+    });
+}
+
+function saveAutoIrrigationDuration(pumpNumber) {
+  const input = document.getElementById(`autoIrrigationMinutes${pumpNumber}`);
+  const button = document.getElementById(`autoIrrigationSave${pumpNumber}`);
+  const message = document.getElementById(`autoIrrigationSaveStatus${pumpNumber}`);
+  if (!input.reportValidity()) return Promise.resolve();
+
+  const minutes = Number(input.value);
+  input.disabled = true;
+  button.disabled = true;
+  message.textContent = "saving...";
+
+  let request;
+  if (shouldUseDemoHistory()) {
+    request = Promise.resolve({
+      ...(currentAutoIrrigationStatus || defaultAutoIrrigationStatus()),
+      [`pump${pumpNumber}Minutes`]: minutes
+    });
+  } else {
+    request = fetch(`/autoirrigationduration?pump=${pumpNumber}&minutes=${minutes}`, { method: "POST" })
+      .then(response => {
+        if (!response.ok) throw new Error("Failed to save duration");
+        return response.json();
+      });
+  }
+
+  return request
+    .then(status => {
+      input.dataset.dirty = "false";
+      updateAutoIrrigationDisplay(status);
+      message.textContent = shouldUseDemoHistory() ? "updated (demo)" : "saved";
+    })
+    .catch(() => {
+      message.textContent = "failed to save - try again";
+    })
+    .finally(() => {
+      input.disabled = false;
+      button.disabled = false;
     });
 }
 
@@ -696,9 +758,19 @@ function resetTank(pumpNumber) {
 
 document.getElementById("resetPump1Tank").addEventListener("click", () => resetTank(1));
 document.getElementById("resetPump2Tank").addEventListener("click", () => resetTank(2));
-document.getElementById("autoIrrigationToggle").addEventListener("click", () => {
-  const status = currentAutoIrrigationStatus || defaultAutoIrrigationStatus();
-  setAutoIrrigationEnabled(!status.enabled);
+[1, 2].forEach(pumpNumber => {
+  document.getElementById(`autoIrrigationMinutes${pumpNumber}`).addEventListener("input", event => {
+    event.target.dataset.dirty = "true";
+    document.getElementById(`autoIrrigationSaveStatus${pumpNumber}`).textContent = "unsaved";
+  });
+  document.getElementById(`autoIrrigationDurationForm${pumpNumber}`).addEventListener("submit", event => {
+    event.preventDefault();
+    saveAutoIrrigationDuration(pumpNumber);
+  });
+  document.getElementById(`autoIrrigationToggle${pumpNumber}`).addEventListener("click", () => {
+    const status = currentAutoIrrigationStatus || defaultAutoIrrigationStatus();
+    setAutoIrrigationEnabled(pumpNumber, !status[`pump${pumpNumber}Enabled`]);
+  });
 });
 document.querySelectorAll(".history-window-button").forEach(button => {
   button.addEventListener("click", () => selectHistoryWindow(Number(button.dataset.historyHours)));

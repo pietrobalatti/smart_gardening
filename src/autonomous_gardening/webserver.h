@@ -17,8 +17,8 @@ const float pump1TankCapacityMinutes = 90.0;
 const float pump2TankCapacityMinutes = 30.0;
 const unsigned int automaticIrrigationStartHour = 20;
 const unsigned int automaticIrrigationStartMinute = 45;
-const unsigned int automaticIrrigationPump1Minutes = 8;
-const unsigned int automaticIrrigationPump2Minutes = 3;
+unsigned int automaticIrrigationPump1Minutes = pump1DefaultWateringMinutes;
+unsigned int automaticIrrigationPump2Minutes = pump2DefaultWateringMinutes;
 
 // Stores pumps state and tickers for timed operations
 String pump1State;
@@ -55,10 +55,12 @@ float pump1TankUsedMinutes = 0.0;
 float pump2TankUsedMinutes = 0.0;
 time_t pump1TankLastFilled = 0;
 time_t pump2TankLastFilled = 0;
-bool automaticIrrigationEnabled = false;
+bool automaticIrrigationPump1Enabled = false;
+bool automaticIrrigationPump2Enabled = false;
 time_t lastAutomaticIrrigationDay = 0;
 unsigned int automaticIrrigationPhase = 0; // 0 idle, 1 pump 1, 2 pump 2
 time_t automaticIrrigationPhaseStartedAt = 0;
+unsigned int automaticIrrigationPhaseMinutes = 0;
 
 struct TankStateSnapshot {
   float pump1UsedMinutes;
@@ -276,16 +278,36 @@ void loadTankState()
   loadTankStateFromPath("/tank_state.txt");
 }
 
-void saveAutomaticIrrigationState()
+bool saveAutomaticIrrigationState()
 {
-  File file = LittleFS.open("/auto_irrigation.txt", "w");
-  if (!file) return;
+  File file = LittleFS.open("/auto_irrigation.tmp", "w");
+  if (!file) return false;
 
-  file.printf("%u,%lu\n",
-    automaticIrrigationEnabled ? 1 : 0,
-    (unsigned long)lastAutomaticIrrigationDay
+  char buffer[80];
+  int length = snprintf(buffer, sizeof(buffer), "%u,%u,%lu,%u,%u\n",
+    automaticIrrigationPump1Enabled ? 1 : 0,
+    automaticIrrigationPump2Enabled ? 1 : 0,
+    (unsigned long)lastAutomaticIrrigationDay,
+    automaticIrrigationPump1Minutes,
+    automaticIrrigationPump2Minutes
   );
+  bool saved = length > 0 && length < (int)sizeof(buffer)
+    && file.write((const uint8_t*)buffer, (size_t)length) == (size_t)length;
   file.close();
+  if (!saved) {
+    LittleFS.remove("/auto_irrigation.tmp");
+    return false;
+  }
+  return LittleFS.rename("/auto_irrigation.tmp", "/auto_irrigation.txt");
+}
+
+bool parseAutomaticIrrigationMinutes(const String& field, unsigned int& minutes)
+{
+  if (!isUnsignedIntegerField(field) || field.length() > String(maxWateringMinutes).length()) return false;
+  long value = field.toInt();
+  if (value < minWateringMinutes || value > maxWateringMinutes) return false;
+  minutes = (unsigned int)value;
+  return true;
 }
 
 void loadAutomaticIrrigationState()
@@ -300,23 +322,45 @@ void loadAutomaticIrrigationState()
 
   int idx1 = line.indexOf(',');
   if (idx1 < 0) {
-    automaticIrrigationEnabled = (line.toInt() == 1);
+    automaticIrrigationPump1Enabled = automaticIrrigationPump2Enabled = (line.toInt() == 1);
     return;
   }
 
-  automaticIrrigationEnabled = (line.substring(0, idx1).toInt() == 1);
-  lastAutomaticIrrigationDay = (time_t)line.substring(idx1 + 1).toInt();
+  automaticIrrigationPump1Enabled = (line.substring(0, idx1).toInt() == 1);
+  int idx2 = line.indexOf(',', idx1 + 1);
+  if (idx2 < 0) {
+    // Older firmware stored a shared enabled flag followed by the last run day.
+    automaticIrrigationPump2Enabled = automaticIrrigationPump1Enabled;
+    lastAutomaticIrrigationDay = (time_t)line.substring(idx1 + 1).toInt();
+  } else {
+    automaticIrrigationPump2Enabled = (line.substring(idx1 + 1, idx2).toInt() == 1);
+    int idx3 = line.indexOf(',', idx2 + 1);
+    if (idx3 < 0) {
+      lastAutomaticIrrigationDay = (time_t)line.substring(idx2 + 1).toInt();
+    } else {
+      lastAutomaticIrrigationDay = (time_t)line.substring(idx2 + 1, idx3).toInt();
+      int idx4 = line.indexOf(',', idx3 + 1);
+      if (idx4 >= 0) {
+        parseAutomaticIrrigationMinutes(line.substring(idx3 + 1, idx4), automaticIrrigationPump1Minutes);
+        parseAutomaticIrrigationMinutes(line.substring(idx4 + 1), automaticIrrigationPump2Minutes);
+      }
+    }
+  }
 }
 
 String getAutomaticIrrigationStatusJson()
 {
   String json = "{";
-  json += "\"enabled\":" + String(automaticIrrigationEnabled ? "true" : "false") + ",";
+  json += "\"pump1Enabled\":" + String(automaticIrrigationPump1Enabled ? "true" : "false") + ",";
+  json += "\"pump2Enabled\":" + String(automaticIrrigationPump2Enabled ? "true" : "false") + ",";
   json += "\"hour\":" + String(automaticIrrigationStartHour) + ",";
   json += "\"minute\":" + String(automaticIrrigationStartMinute) + ",";
   json += "\"pump1Minutes\":" + String(automaticIrrigationPump1Minutes) + ",";
   json += "\"pump2Minutes\":" + String(automaticIrrigationPump2Minutes) + ",";
   json += "\"activePhase\":" + String(automaticIrrigationPhase) + ",";
+  json += "\"activeMinutes\":" + String(automaticIrrigationPhaseMinutes) + ",";
+  json += "\"minMinutes\":" + String(minWateringMinutes) + ",";
+  json += "\"maxMinutes\":" + String(maxWateringMinutes) + ",";
   json += "\"lastRunDay\":" + String((unsigned long)lastAutomaticIrrigationDay);
   json += "}";
   return json;
@@ -577,43 +621,64 @@ void handlePumpStopRequests()
   }
 }
 
-void stopAutomaticIrrigationSequence()
+void finishAutomaticIrrigationPhase(time_t now)
 {
+  unsigned int completedPhase = automaticIrrigationPhase;
   if (automaticIrrigationPhase == 1) {
-    stopPump1();
+    stopPump1At(now);
   } else if (automaticIrrigationPhase == 2) {
-    stopPump2();
+    stopPump2At(now);
   }
 
   automaticIrrigationPhase = 0;
   automaticIrrigationPhaseStartedAt = 0;
+  automaticIrrigationPhaseMinutes = 0;
+  if (completedPhase == 1 && automaticIrrigationPump2Enabled) {
+    pump2Ticker.detach();
+    startPump2();
+    automaticIrrigationPhase = 2;
+    automaticIrrigationPhaseStartedAt = now;
+    automaticIrrigationPhaseMinutes = automaticIrrigationPump2Minutes;
+  }
 }
 
-void setAutomaticIrrigationEnabled(bool enabled)
+void setAutomaticIrrigationEnabled(unsigned int pumpNumber, bool enabled)
 {
-  automaticIrrigationEnabled = enabled;
-  if (!automaticIrrigationEnabled) {
-    stopAutomaticIrrigationSequence();
+  if (pumpNumber == 1) {
+    automaticIrrigationPump1Enabled = enabled;
+  } else if (pumpNumber == 2) {
+    automaticIrrigationPump2Enabled = enabled;
+  }
+  if (!enabled && automaticIrrigationPhase == pumpNumber) {
+    finishAutomaticIrrigationPhase(time(nullptr));
   }
   saveAutomaticIrrigationState();
 }
 
 void startAutomaticIrrigationSequence(time_t now)
 {
+  if (!automaticIrrigationPump1Enabled && !automaticIrrigationPump2Enabled) return;
+
   time_t todayStart = getDayStart(now);
   if (todayStart > 0) {
     lastAutomaticIrrigationDay = todayStart;
     saveAutomaticIrrigationState();
   }
 
-  pump1Ticker.detach();
-  pump2Ticker.detach();
-  if (digitalRead(pump2Pin)) {
-    stopPump2At(now);
+  if (automaticIrrigationPump1Enabled) {
+    pump1Ticker.detach();
+    if (automaticIrrigationPump2Enabled && digitalRead(pump2Pin)) {
+      stopPump2At(now);
+    }
+    startPump1();
+    automaticIrrigationPhase = 1;
+    automaticIrrigationPhaseMinutes = automaticIrrigationPump1Minutes;
+  } else {
+    pump2Ticker.detach();
+    startPump2();
+    automaticIrrigationPhase = 2;
+    automaticIrrigationPhaseMinutes = automaticIrrigationPump2Minutes;
   }
-
-  startPump1();
-  automaticIrrigationPhase = 1;
   automaticIrrigationPhaseStartedAt = now;
 }
 
@@ -623,27 +688,21 @@ void handleAutomaticIrrigation()
   if (now < 100000) return;
 
   if (automaticIrrigationPhase == 1) {
-    if ((unsigned long)(now - automaticIrrigationPhaseStartedAt) >= (unsigned long)automaticIrrigationPump1Minutes * 60UL) {
-      stopPump1At(now);
-      pump2Ticker.detach();
-      startPump2();
-      automaticIrrigationPhase = 2;
-      automaticIrrigationPhaseStartedAt = now;
+    if (!automaticIrrigationPump1Enabled || (unsigned long)(now - automaticIrrigationPhaseStartedAt) >= (unsigned long)automaticIrrigationPhaseMinutes * 60UL) {
+      finishAutomaticIrrigationPhase(now);
     }
     return;
   }
 
   if (automaticIrrigationPhase == 2) {
-    if ((unsigned long)(now - automaticIrrigationPhaseStartedAt) >= (unsigned long)automaticIrrigationPump2Minutes * 60UL) {
-      stopPump2At(now);
-      automaticIrrigationPhase = 0;
-      automaticIrrigationPhaseStartedAt = 0;
+    if (!automaticIrrigationPump2Enabled || (unsigned long)(now - automaticIrrigationPhaseStartedAt) >= (unsigned long)automaticIrrigationPhaseMinutes * 60UL) {
+      finishAutomaticIrrigationPhase(now);
       saveAutomaticIrrigationState();
     }
     return;
   }
 
-  if (!automaticIrrigationEnabled) return;
+  if (!automaticIrrigationPump1Enabled && !automaticIrrigationPump2Enabled) return;
 
   struct tm* timeInfo = localtime(&now);
   if (timeInfo == nullptr) return;
@@ -863,13 +922,42 @@ void initialize_webserver(AsyncWebServer& server)
     });
 
     server.on("/autoirrigation", HTTP_POST, [](AsyncWebServerRequest *request){
-      bool enabled = automaticIrrigationEnabled;
-      if (request->hasParam("enabled")) {
-        String value = request->getParam("enabled")->value();
-        value.toLowerCase();
-        enabled = (value == "1" || value == "true" || value == "on");
+      if (!request->hasParam("pump") || !request->hasParam("enabled")) {
+        request->send(400, "text/plain", "pump and enabled are required");
+        return;
       }
-      setAutomaticIrrigationEnabled(enabled);
+      String pump = request->getParam("pump")->value();
+      if (pump != "1" && pump != "2") {
+        request->send(400, "text/plain", "pump must be 1 or 2");
+        return;
+      }
+      String value = request->getParam("enabled")->value();
+      value.toLowerCase();
+      bool enabled = (value == "1" || value == "true" || value == "on");
+      setAutomaticIrrigationEnabled((unsigned int)pump.toInt(), enabled);
+      request->send(200, "application/json", getAutomaticIrrigationStatusJson());
+    });
+
+    server.on("/autoirrigationduration", HTTP_POST, [](AsyncWebServerRequest *request){
+      if (!request->hasParam("pump") || !request->hasParam("minutes")) {
+        request->send(400, "text/plain", "pump and minutes are required");
+        return;
+      }
+      String pump = request->getParam("pump")->value();
+      unsigned int minutes;
+      if ((pump != "1" && pump != "2")
+          || !parseAutomaticIrrigationMinutes(request->getParam("minutes")->value(), minutes)) {
+        request->send(400, "text/plain", "Invalid pump or watering duration");
+        return;
+      }
+      unsigned int& duration = (pump == "1") ? automaticIrrigationPump1Minutes : automaticIrrigationPump2Minutes;
+      unsigned int previousMinutes = duration;
+      duration = minutes;
+      if (!saveAutomaticIrrigationState()) {
+        duration = previousMinutes;
+        request->send(500, "text/plain", "Failed to save watering duration");
+        return;
+      }
       request->send(200, "application/json", getAutomaticIrrigationStatusJson());
     });
 
